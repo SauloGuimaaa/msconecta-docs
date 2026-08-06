@@ -9,6 +9,14 @@ Formato de cada entrada:
 
 ---
 
+## 2026-08-06 — Extração da imagem de capa passa a priorizar o arquivo original (via `<a href>`) em vez do proxy de resize
+- **O que mudou:** `scrape_noticia()` em `gerar_tudo.py` agora extrai a URL da imagem de capa em cascata de prioridade: (a) `<a href>` que envolve a `<img>` de capa no HTML, apontando direto pro arquivo original no CMS (`msconecta.com.br/images/noticias/...`); (b) se não achar, o parâmetro `src=`/`url=` de dentro de uma URL do proxy `load.websg.app.br` (og:image/twitter:image/img src), com URL-decode e tratamento de `&amp;`; (c) fallback para o comportamento antigo (og:image/seletores de `<img>`, com `w=2400&h=1600` forçado na URL do proxy) se nada acima bater. Duas funções auxiliares novas: `_extrair_capa_via_ancora()` e `_extrair_capa_via_proxy_param()`. O download em 3 estágios (direto → proxy `codetabs` → PC Windows via Tailscale) em `baixar_imagem()` não foi alterado, só passou a receber uma URL de entrada melhor.
+- **Arquivos/serviços afetados:** `gerar_tudo.py` (função `scrape_noticia()` e duas funções novas). `monitor_noticias.py` não precisou de mudança — só dispara `gerar_tudo.py URL` via subprocess, sem lógica própria de extração de imagem.
+- **Motivo:** o proxy de imagens do CMS (`load.websg.app.br`) recomprime a foto (conversão para webp/jpg) e, em fotos cujo arquivo original é menor que 2400×1600, faz upscale artificial por interpolação simples para atingir esse tamanho — sem detalhe real adicional. Isso mascarava o tamanho real da imagem e fazia o critério geométrico de acionamento do upscale via IA (Real-ESRGAN, `LIMIAR_UPSCALE_IA = 1.8x`) nunca disparar para essas fotos, já que a versão "grande" do proxy parecia suficientemente grande. Testado em 3 notícias reais (editorias PANTANAL/educação, política e economia): o arquivo original tem, sim, menos pixels nominais e menos bytes que a versão inflada pelo proxy (ex: 900×675/183 KB vs 2400×1600/442 KB), mas ao usar o original o pipeline mede o tamanho real e aciona corretamente o Real-ESRGAN quando necessário — reconstrução de detalhe por IA em vez de upscale genérico do proxy, além de evitar uma recompressão extra (dupla perda de qualidade JPEG/WEBP).
+- **Autor:** Claude Code
+
+---
+
 ## 2026-08-06 — Criação do contexto inicial e histórico versionado
 - **O que mudou:** mapeamento completo do projeto gerado e pasta de documentação estruturada como repositório git.
 - **Arquivos/serviços afetados:** nenhum código alterado, apenas documentação nova.
