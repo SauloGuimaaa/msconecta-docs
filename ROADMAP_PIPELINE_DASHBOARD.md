@@ -199,6 +199,64 @@ para qualquer sessão futura não repetir a mesma investigação:
   arquivo (geraria cards vazios num Kanban futuro). Se uma sessão futura confirmar a
   semântica exata de `monitor_noticias.py` para este arquivo, revisar essa decisão.
 
+### 4.2 Decisão de arquitetura: sincronização incremental em vez de dual-write (2026-08-14)
+
+A Fase 0 originalmente descrita neste documento (seção 6) previa **dual-write**:
+instrumentar `orquestrador.py`, `telegram_bot.py`, `reel_handler.py`,
+`publicar_instagram.py` e `monitor_noticias.py` para escreverem no `msconecta.db`
+toda vez que já escrevem nos JSONs de produção. **Essa abordagem foi descartada em
+favor de um job de sincronização incremental separado** (`sync_pipeline_db.py`),
+pelos seguintes motivos:
+
+- **Raio de explosão menor.** Dual-write significa tocar 5+ scripts que já rodam em
+  produção (alguns via cron a cada minuto — `publicar_instagram.py`), cada um um
+  ponto novo de risco de regressão no fluxo real de publicação. Um job de
+  sincronização separado, rodando por fora, tem exatamente **um** ponto de falha
+  possível — o próprio job — e uma falha nele não pode, por construção, impedir uma
+  notícia ou Reel de ser publicado (ele só lê os mesmos JSONs depois do fato).
+- **Nenhum script de produção precisa saber que o banco existe.** Reforça o
+  princípio já registrado na seção 3 ("não quebrar o que está em produção") de forma
+  mais literal do que o dual-write permitiria — não é só "sem mudança de
+  comportamento visível", é "zero linhas alteradas" nesses arquivos.
+- **Mesmo padrão de risco já mapeado na seção 6 do `CONTEXTO_MSCONECTA.md`**
+  (falhas silenciosas em threads/timeouts não tratados) não se aplica a um job que
+  roda isolado, com seu próprio lock, log estruturado e alerta — ao contrário de
+  inserir escrita adicional dentro de um fluxo que já tem 3 incidentes documentados
+  de falha silenciosa na mesma semana (11 e 13/08/2026).
+- **Trade-off aceito**: o banco fica sempre alguns minutos "atrás" da produção (o
+  intervalo do cron do sync), em vez de instantâneo como o dual-write daria. Aceitável
+  para o caso de uso (dashboard de visão geral, não um sistema transacional).
+
+**Implementação**: `sync_pipeline_db.py`, na raiz de `/root/msconecta/`, lê os mesmos
+JSONs que `migrar_dados_iniciais.py` já lê (exceto `saude_estado.json`,
+`design_queue.json` e `noticias_vistas.json` — fontes mortas ou já descartadas na
+Fase 0, ver seção 4.1) e faz **UPSERT** (`INSERT ... ON CONFLICT ... DO UPDATE`,
+suportado desde SQLite 3.24) em vez de recriar o banco. Chave natural: `pasta` em
+`content_items`; `video_path` (ou `fonte_url`, para candidatos de Reel ainda sem
+vídeo renderizado) em `reels`. `pipeline_events` usa duas **UNIQUE INDEX parciais**
+— `(content_item_id, estagio_novo, timestamp) WHERE content_item_id IS NOT NULL` e o
+equivalente para `reel_id` — em vez de uma única `UNIQUE` composta na tabela: **bug
+descoberto e corrigido durante a implementação** — em SQL, `NULL` nunca é considerado
+igual a outro `NULL`, então uma `UNIQUE(content_item_id, reel_id, estagio_novo,
+timestamp)` comum nunca detecta conflito nesta tabela (`reel_id` é sempre `NULL` nos
+eventos de notícia, e vice-versa) — confirmado com um teste isolado antes de aplicar
+a correção definitiva (duas `CREATE UNIQUE INDEX ... WHERE ...`).
+
+Uma transação por execução (`BEGIN`/`COMMIT`/`ROLLBACK`), lock via `fcntl.flock` não
+bloqueante em `/tmp/sync_pipeline_db.lock` (liberado automaticamente pelo kernel
+mesmo se o processo morrer — sem risco de lockfile "preso" por acidente), log em
+`logs/sync_pipeline_db.log`, alerta no Telegram em falha (token/chat id lidos de
+`/etc/msconecta-bot.env`, nunca hardcoded — mesmo padrão de `monitor_saude.py`) e
+também se o lock ficar preso por 3 execuções seguidas (sinal de travamento, não só
+uma sobreposição pontual). Modo `--dry-run` roda a sincronização inteira dentro da
+transação e sempre dá `ROLLBACK` no final, nunca persiste.
+
+**Status: implementado e validado em `--dry-run`, aguardando aprovação de Saulo para
+entrar no cron.** Ver `HISTORICO_MUDANCAS.md`, entrada de 2026-08-14, para o
+resultado dos testes (idempotência confirmada em execuções repetidas, detecção de
+mudança incremental confirmada com um item sintético temporário, caminho de
+persistência real também testado e revertido sem deixar resíduo).
+
 ## 5. Arquitetura em camadas
 
 ```
@@ -237,24 +295,36 @@ para qualquer sessão futura não repetir a mesma investigação:
 ## 6. Fases
 
 ### Fase 0 — Modelo de dados unificado
-**Entrega:** schema SQLite criado, script de migração dos JSONs existentes, dual-write
-implementado nos pontos que já escrevem `estado.json`/`agendamentos.json`/etc.
+**Entrega:** schema SQLite criado, script de migração dos JSONs existentes, banco
+mantido atualizado por um job de sincronização incremental (ver decisão de
+arquitetura na seção 4.2 — substitui o dual-write espalhado pelos scripts de
+produção originalmente previsto aqui).
 **Critério de conclusão:** o banco reflete fielmente o estado atual do sistema, sem
 nenhuma mudança de comportamento visível no Telegram.
 **Risco:** baixo.
 
-**Status: parcialmente concluída em 2026-08-14.** Executado: schema
-(`/root/msconecta/pipeline_schema.sql`), script de migração
-(`/root/msconecta/migrar_dados_iniciais.py`) e script de verificação
-(`/root/msconecta/verificar_migracao.py`), rodados com sucesso — banco em
-`/root/msconecta/msconecta.db` populado a partir de todos os 5 JSONs do escopo
-original + `estado.json` (item em fluxo agora) + `saude_estado.json`, com 100% de
-correspondência na amostra de verificação. Ver seção 4.1 para os ajustes de schema
-descobertos durante a implementação. **Nenhum script de produção foi tocado** — os
-JSONs continuam sendo a única fonte de verdade em produção. **Dual-write ainda NÃO
-foi implementado** — fica para uma etapa separada, só depois de Saulo validar o
-schema e o resultado da migração (ver `HISTORICO_MUDANCAS.md`, entrada de
-2026-08-14, para o resumo completo de linhas migradas).
+**Status: praticamente concluída em 2026-08-14, aguardando aprovação final de
+Saulo.** Executado:
+1. Schema (`/root/msconecta/pipeline_schema.sql`), script de migração inicial única
+   (`/root/msconecta/migrar_dados_iniciais.py`) e script de verificação
+   (`/root/msconecta/verificar_migracao.py`) — banco em `/root/msconecta/msconecta.db`
+   populado a partir dos JSONs de produção + `estado.json` + `saude_estado.json`, com
+   100% de correspondência na amostra de verificação. Ver seção 4.1 para os ajustes
+   de schema descobertos ao confrontar com os dados reais.
+2. Lógica de parsing compartilhada extraída para `/root/msconecta/pipeline_lib.py`
+   (usada tanto pela migração quanto pela sincronização, evitando duplicação).
+3. Job de sincronização incremental (`/root/msconecta/sync_pipeline_db.py`) — ver
+   seção 4.2 para a decisão de arquitetura e detalhes de implementação. Testado com
+   sucesso em `--dry-run` (idempotência e detecção de mudança incremental
+   confirmadas) e com uma execução real controlada (persistência confirmada, sem
+   deixar resíduo). **Ainda NÃO está no cron** — aguardando aprovação explícita de
+   Saulo antes de ativar (ver `HISTORICO_MUDANCAS.md`, entrada de 2026-08-14, para a
+   linha de crontab sugerida).
+
+**Nenhum script de produção foi tocado** — os JSONs continuam sendo a única fonte de
+verdade em produção, e nenhum deles (`orquestrador.py`, `telegram_bot.py`,
+`reel_handler.py`, `publicar_instagram.py`, `monitor_noticias.py`) precisa saber que
+o banco existe.
 
 ### Fase 1 — Dashboard somente leitura
 **Entrega:** board (Kanban) por estágio, planner do dia (visão do que está agendado),
