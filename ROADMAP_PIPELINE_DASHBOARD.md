@@ -349,21 +349,46 @@ agora — quantas notícias em cada estágio, o que sai hoje, o que está saudá
   driver, não só por convenção de código). Bind `127.0.0.1:8095` (porta livre
   confirmada antes de escolher — não colide com 8085/8090/3001/8765 nem com os
   outros serviços já rodando na VPS). Systemd `msconecta-pipeline-dashboard.service`.
-  Exposto via nginx em `http://72.60.151.58/pipeline`, protegido por autenticação
-  básica (senha gerada aleatoriamente, comunicada a Saulo fora deste documento;
-  arquivo `/etc/nginx/.htpasswd_pipeline`). **Desvio do plano**: optou-se por nginx
-  basic auth em vez do padrão de token de `editor_tokens.py` — esse mecanismo foi
+  Exposto em `https://pipeline.korabot.com.br/pipeline` (TLS via Let's Encrypt,
+  ver abaixo), protegido por autenticação básica (arquivo
+  `/etc/nginx/.htpasswd_pipeline`, senha comunicada a Saulo via Telegram, nunca em
+  texto plano em nenhum arquivo). **Desvio do plano**: optou-se por nginx basic
+  auth em vez do padrão de token de `editor_tokens.py` — esse mecanismo foi
   desenhado para sessões de edição por-pasta-de-notícia com TTL de 4h (link
   efêmero enviado pelo bot), semântica que não encaixa numa ferramenta de
   navegação contínua por todo o pipeline; basic auth é a melhor opção mais simples.
-  **Ressalva de segurança**: o bloco nginx usado (`msconecta-designs`) só tem
-  `server_name` = IP direto da VPS, sem TLS configurado — o acesso é HTTP puro, a
-  senha viaja sem criptografia na rede. Aceitável por ora (mesmo nível de exposição
-  que as outras rotas desse bloco), mas vale revisitar se o dashboard passar a expor
-  ações (Fase 2) ou dados mais sensíveis.
 - Validado localmente e via nginx (autenticação correta/incorreta, fragmentos htmx,
   estáticos) antes de considerar a fase pronta — ver `HISTORICO_MUDANCAS.md` para o
   detalhe dos testes.
+
+**Endurecimento de segurança (2026-08-14, mesma sessão que revisou o resultado da
+Fase 1) — duas pendências fechadas antes de seguir para qualquer coisa nova:**
+- **TLS via subdomínio dedicado**: DNS de `pipeline.korabot.com.br` já apontado por
+  Saulo para o IP da VPS antes de começar (confirmado via `dig`); criado
+  `/etc/nginx/sites-available/pipeline` (novo `server_name`, mesma `location
+  /pipeline`, mesmo `proxy_pass` para `127.0.0.1:8095`, mesma autenticação básica);
+  certificado emitido via `certbot --nginx -d pipeline.korabot.com.br --redirect`
+  (reaproveitou a conta Let's Encrypt já registrada nesta VPS para os demais
+  domínios `*.korabot.com.br`); confirmado emissor `Let's Encrypt` e validade de 90
+  dias via `openssl s_client`, e redirecionamento automático HTTP→HTTPS (301). A
+  `location /pipeline` foi **removida** do bloco antigo (`msconecta-designs`,
+  `server_name` = IP direto) — o acesso por IP não expõe mais o dashboard (cai na
+  SPA que já ocupa a location `/` desse bloco). Renovação automática via
+  `certbot.timer` (systemd) já estava habilitada por padrão nesta VPS para os
+  demais certificados — só confirmado, nada novo configurado.
+- **Rotação de senha**: a senha anterior (comunicada em texto plano numa sessão
+  anterior) foi tratada como comprometida e rotacionada. **Bug real encontrado e
+  corrigido durante a rotação**: a primeira tentativa gravou
+  `/etc/nginx/.htpasswd_pipeline` com dono `root:root`, mas o worker do nginx roda
+  como `www-data` — o arquivo ficou ilegível para o nginx (`open() ... Permission
+  denied` no error log), quebrando a autenticação por completo (tanto a senha nova
+  quanto a antiga passaram a retornar HTTP 500, não 401/200). Corrigido para
+  `root:www-data` (modo 640); a senha rotacionada nessa primeira tentativa nunca
+  chegou a funcionar de verdade, então uma segunda rotação foi feita — dessa vez
+  validando com sucesso/senha-errada **antes** de notificar Saulo, para não repetir
+  o erro de comunicar uma credencial não testada. Nova senha entregue via mensagem
+  do bot do Telegram (mesmo canal já usado por todo o projeto para aprovações),
+  nunca impressa nesta sessão nem em nenhum arquivo de documentação.
 
 ### Fase 2 — Ações no dashboard
 **Entrega:** aprovar/rejeitar/ajustar/agendar/reenviar a partir do dashboard, via a
