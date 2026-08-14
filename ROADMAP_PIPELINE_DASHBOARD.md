@@ -126,6 +126,79 @@ tabelas, preservando o histórico existente onde possível. Os JSONs continuam s
 escritos em paralelo durante a transição (dual-write), até todos os fluxos migrarem
 para ler/escrever direto no banco.
 
+### 4.1 Correções ao schema a partir dos dados reais (Fase 0, executada em 2026-08-14)
+
+Ao implementar a Fase 0 e ler os JSONs de produção linha a linha (não só a
+documentação), várias premissas deste roadmap precisaram de ajuste. Registradas aqui
+para qualquer sessão futura não repetir a mesma investigação:
+
+- **Notícias e Reels não são arquivos separados** — ambos vivem juntos em
+  `agendamentos.json` (lista única), diferenciados pelo campo `tipo` (`null` = notícia
+  feed/story, `"reel"` = Reel). O script de migração precisa dividir por esse campo,
+  não ler de dois arquivos distintos.
+- **Estágio `cancelado` estava faltando no enum** — produção tem notícias com
+  `status: "cancelado"` (reagendamentos descartados). Adicionado a ambos os enums
+  (`content_items` e `reels`).
+- **A identidade real de um item hoje é a `pasta`** (diretório de output), não um ID
+  de notícia — `noticia_id`/`titulo`/`url_site`/`editoria` não existem em
+  `agendamentos.json` para notícias (só para Reels); vêm de `meta.json` dentro da
+  própria pasta, quando esse arquivo ainda existe em disco (79 de 1103 pastas não
+  tinham mais `meta.json` no momento da migração — provavelmente limpeza histórica —,
+  então essas linhas ficaram com `titulo`/`url_site` nulos). Fallback: `editoria`
+  também pode ser extraído do próprio nome da pasta quando `meta.json` falta.
+- **9 pastas tinham múltiplas entradas em `agendamentos.json`** (cadeias de
+  reagendamento/retry, ex: `cancelado` → `agendado` → `publicado`). O modelo trata a
+  **última entrada** como o estado atual do `content_item`, e preserva a cadeia
+  completa em `pipeline_events` — validação real e não-sintética de por que essa
+  tabela existe.
+- **Granularidade de publicação é mais grosseira do que o roadmap assumia**:
+  `agendamentos.json` grava só um timestamp `publicado_em` por item, não um por
+  feed/story/canal. `publicado_feed_em`/`publicado_story_em` foram preenchidos com o
+  mesmo valor (aproximação; `publicado_story_em` fica nulo só quando `feed_only=true`).
+  **`publicado_canal_em` e `verificado_canal_em` não existem em nenhum JSON de
+  produção hoje** — confirma exatamente a lacuna que motiva a Fase 4; ficaram nulos
+  para 100% das linhas migradas.
+- **`duracao_segundos`, `elegivel_reels` e `render_origem` de Reels não têm dado
+  histórico** — não são gravados em `agendamentos.json`; só passam a existir a partir
+  de instrumentação futura (a checagem de duração de 2026-08-13 já ajuda, mas ainda
+  não persiste o valor num campo estruturado).
+- **`pipeline_events.origem` ganhou um 4º valor: `'migracao'`** — usado para marcar
+  honestamente os eventos reconstruídos a partir dos JSONs nesta migração inicial,
+  distintos de eventos gerados ao vivo por `telegram`/`dashboard`/`automatico`
+  depois que o dual-write existir.
+- **`saude_estado.json` está morto/parado desde 2026-06-15** (~2 meses sem escrita
+  no momento da migração) — migrado para `system_health` só como registro histórico,
+  explicitamente marcado como tal no campo `detalhe`. **Não reflete a saúde atual do
+  sistema.** Reforça (com dado real, não hipotético) por que a Fase 1+ precisa de um
+  health-check ativo de verdade, e não pode só ler esse arquivo achando que é "ao
+  vivo". Além disso, o arquivo nunca gravou `pid_esperado`/`pid_atual` — só
+  `ok`/`detalhe` por serviço — ou seja, nem a checagem antiga cumpria o princípio de
+  "identidade do processo" definido na seção 3; essa instrumentação ainda não existe
+  e precisa ser construída do zero na Fase 1+, não só lida de um arquivo existente.
+- **`videos_sugestoes.json`/`videos_vistos.json` (saída de `monitor_videos.py`,
+  curadoria automática via YouTube) também estão parados desde 2026-06-15** — mas os
+  74 Reels publicados desde então continuaram saindo normalmente, vindos de
+  **submissão manual ao bot** (fluxo já documentado em `CONTEXTO_MSCONECTA.md` §Reels:
+  "vídeos virais curados **ou enviados manualmente ao bot**"). Ou seja, a curadoria
+  automática via YouTube parece dormente na prática, e o fluxo manual é hoje o
+  caminho real de produção. Os 12 candidatos pendentes nesse arquivo foram migrados
+  para `reels` com `estagio='descoberta_video'` e `origem='migracao_videos_sugestoes_dormente'`
+  — marcados explicitamente como dormentes para a Fase 1 não os exibir misturados com
+  itens de um fluxo ativo. **Decisão a tomar por Saulo, fora do escopo da Fase 0**:
+  reativar `monitor_videos.py` ou descontinuá-lo formalmente.
+- **`design_queue.json` é um artefato morto de uma versão anterior do pipeline** —
+  sem escrita desde 2026-04-26, e nenhuma de suas 21 URLs aparece em
+  `agendamentos.json` (zero sobreposição). Não migrado para `content_items` (sem
+  título/dados confiáveis para reconstruir uma linha útil). Candidato a
+  arquivamento/remoção numa limpeza futura, fora do escopo desta fase.
+- **`noticias_vistas.json` é só uma lista plana de URLs** (dedup/"já visto" para o
+  scraping), sem título nem metadados — não é um registro de conteúdo. 652 das 1669
+  URLs (39%) não aparecem em `agendamentos.json` — pode ser notícia vista mas não
+  selecionada para design, ou anterior à existência do campo `noticia_url`. **Decisão
+  registrada**: não sintetizar linhas de `content_items` sem título a partir desse
+  arquivo (geraria cards vazios num Kanban futuro). Se uma sessão futura confirmar a
+  semântica exata de `monitor_noticias.py` para este arquivo, revisar essa decisão.
+
 ## 5. Arquitetura em camadas
 
 ```
@@ -169,6 +242,19 @@ implementado nos pontos que já escrevem `estado.json`/`agendamentos.json`/etc.
 **Critério de conclusão:** o banco reflete fielmente o estado atual do sistema, sem
 nenhuma mudança de comportamento visível no Telegram.
 **Risco:** baixo.
+
+**Status: parcialmente concluída em 2026-08-14.** Executado: schema
+(`/root/msconecta/pipeline_schema.sql`), script de migração
+(`/root/msconecta/migrar_dados_iniciais.py`) e script de verificação
+(`/root/msconecta/verificar_migracao.py`), rodados com sucesso — banco em
+`/root/msconecta/msconecta.db` populado a partir de todos os 5 JSONs do escopo
+original + `estado.json` (item em fluxo agora) + `saude_estado.json`, com 100% de
+correspondência na amostra de verificação. Ver seção 4.1 para os ajustes de schema
+descobertos durante a implementação. **Nenhum script de produção foi tocado** — os
+JSONs continuam sendo a única fonte de verdade em produção. **Dual-write ainda NÃO
+foi implementado** — fica para uma etapa separada, só depois de Saulo validar o
+schema e o resultado da migração (ver `HISTORICO_MUDANCAS.md`, entrada de
+2026-08-14, para o resumo completo de linhas migradas).
 
 ### Fase 1 — Dashboard somente leitura
 **Entrega:** board (Kanban) por estágio, planner do dia (visão do que está agendado),
