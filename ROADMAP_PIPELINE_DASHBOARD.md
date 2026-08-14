@@ -390,6 +390,50 @@ Fase 1) — duas pendências fechadas antes de seguir para qualquer coisa nova:*
   do bot do Telegram (mesmo canal já usado por todo o projeto para aprovações),
   nunca impressa nesta sessão nem em nenhum arquivo de documentação.
 
+**Redesenho visual (2026-08-14) — CSS/HTML/estrutura apenas, sem mudança de SQL,
+rotas ou comportamento:** o visual genérico de "admin dashboard" da entrega original
+da Fase 1 foi substituído por um sistema visual próprio, ancorado na identidade real
+do MSConecta em vez de aproximá-la. Plano de design completo e a justificativa das
+escolhas em `HISTORICO_MUDANCAS.md` (mesma data) — resumo:
+- **Tipografia real da marca, self-hospedada** (sem CDN): Morganite Black
+  (wordmark/display), Arboria Bold (títulos de card/seção — a mesma fonte dos
+  posts reais), Barlow (texto/dados/UI). Arquivos `.ttf` copiados de
+  `fontes/{Morganite,Arboria,Barlow}/` (já existentes no projeto para
+  `gerar_tudo.py`) para `static_pipeline/fonts/`, servidos via `@font-face`.
+- **Paleta ancorada na cor de marca real** (`#0c89e5`, extraída de
+  `moldes/feed.svg`/`story.svg`) em vez de um acento genérico de SaaS, sobre um
+  fundo quase-preto com leve matiz azulada (não cinza neutro nem preto puro) —
+  evita deliberadamente os clichês de dashboard gerado por IA (cream+terracota,
+  preto+neon único, hairlines de jornal sem padronagem).
+- **Elemento assinatura**: rail colorido fino no topo de cada coluna/tile +
+  marca triangular discreta no canto de cada card, ecoando a geometria do
+  ícone real do logo MSConecta — repetido de forma coesa nas 3 views (rail no
+  Board, faixa lateral nas linhas do Planner, rail nos tiles de Saúde).
+- **~20 estágios agrupados em 6 grupos semânticos de cor** (entrada/progresso/
+  atenção/sucesso/erro/neutro) — mapeamento presentational novo
+  (`GRUPO_ESTAGIO`/`COR_GRUPO`), não uma mudança de dado.
+- **Sinal visual de item parado**: cards em estágio não-terminal (aguardando
+  aprovação, ajustando, renderizando etc.) há mais de 24h ganham borda âmbar —
+  calculado em cima do `atualizado_em` que a consulta já trazia, reaproveitando
+  a função `_tempo_desde()` que já existia (antes só usada na view de Saúde).
+- **Planner**: virou uma agenda com faixa colorida por estágio e uma linha
+  "Agora — HH:MM" inserida na posição cronológica certa, separando visualmente
+  o que já saiu do que ainda está por vir.
+- **Saúde**: tabela virou grade de tiles (mais escaneável para só 6 serviços).
+- **Bug real encontrado e corrigido durante o teste**: itens em
+  `aguardando_aprovacao` usam `agendado_para` (no futuro) como `atualizado_em`
+  exibido — o cálculo de tempo relativo não tratava valores futuros e mostrava
+  "há -23min". Corrigido (`_tempo_desde` agora mostra "em Xmin" para o futuro).
+  Achado só ficou visível porque o redesenho passou a mostrar tempo relativo
+  nos cards do Board, algo que a versão anterior não fazia ali.
+- **Responsivo** (testado em viewport mobile 390px via Playwright/Chromium
+  headless — já disponível nesta VPS) e **foco de teclado visível**
+  (`:focus-visible`, testado via navegação por Tab).
+- Testado localmente (porta de teste separada) e depois em produção real via
+  `https://pipeline.korabot.com.br/pipeline` com autenticação — capturas de
+  tela das 3 views + mobile + foco de teclado revisadas antes de considerar
+  a tarefa concluída.
+
 ### Fase 2 — Ações no dashboard
 **Entrega:** aprovar/rejeitar/ajustar/agendar/reenviar a partir do dashboard, via a
 camada de serviço compartilhada (refatorando a lógica hoje embutida em
