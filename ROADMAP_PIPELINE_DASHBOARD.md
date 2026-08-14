@@ -317,9 +317,11 @@ Saulo.** Executado:
    seção 4.2 para a decisão de arquitetura e detalhes de implementação. Testado com
    sucesso em `--dry-run` (idempotência e detecção de mudança incremental
    confirmadas) e com uma execução real controlada (persistência confirmada, sem
-   deixar resíduo). **Ainda NÃO está no cron** — aguardando aprovação explícita de
-   Saulo antes de ativar (ver `HISTORICO_MUDANCAS.md`, entrada de 2026-08-14, para a
-   linha de crontab sugerida).
+   deixar resíduo). **Ativado no cron em 2026-08-14** (`*/5 * * * *`), aprovado por
+   Saulo — 2 execuções reais confirmadas sem erro e sem alerta de lock indevido (ver
+   `HISTORICO_MUDANCAS.md`).
+
+**Fase 0 concluída em 2026-08-14.**
 
 **Nenhum script de produção foi tocado** — os JSONs continuam sendo a única fonte de
 verdade em produção, e nenhum deles (`orquestrador.py`, `telegram_bot.py`,
@@ -332,6 +334,36 @@ painel de saúde do sistema (lendo `system_health`), tudo em modo leitura.
 **Critério de conclusão:** dá pra ver, sem usar o Telegram, tudo que está em produção
 agora — quantas notícias em cada estágio, o que sai hoje, o que está saudável/quebrado.
 **Risco:** baixo — pura visibilidade, nenhuma ação nova.
+
+**Status: implementada em 2026-08-14, aguardando validação visual de Saulo.**
+- **Health-check ativo** (`health_check_pipeline.py`) construído do zero — não usa
+  `saude_estado.json` (morto desde 2026-06-15, ver seção 4.1). Checa identidade de
+  processo: VPS via `systemctl` + `/proc/<pid>/cmdline` (msconecta-bot/api/editor/
+  dashboard); PC Windows via assinatura de resposta HTTP sobre Tailscale
+  (`story_listener_novo.ps1` porta 8765, servidor de render porta 3001), timeout de
+  rede tratado como `desconhecido`, não `falha`. Roda manualmente por ora — cron
+  sugerido ainda não aprovado (ver `HISTORICO_MUDANCAS.md`).
+- **Dashboard** (`dashboard_pipeline.py`): FastAPI + htmx, sem build step de
+  frontend (decisão confirmada — complexidade de SPA não se justifica antes da
+  Fase 2). Conexão SQLite em modo `mode=ro` (somente leitura garantida a nível de
+  driver, não só por convenção de código). Bind `127.0.0.1:8095` (porta livre
+  confirmada antes de escolher — não colide com 8085/8090/3001/8765 nem com os
+  outros serviços já rodando na VPS). Systemd `msconecta-pipeline-dashboard.service`.
+  Exposto via nginx em `http://72.60.151.58/pipeline`, protegido por autenticação
+  básica (senha gerada aleatoriamente, comunicada a Saulo fora deste documento;
+  arquivo `/etc/nginx/.htpasswd_pipeline`). **Desvio do plano**: optou-se por nginx
+  basic auth em vez do padrão de token de `editor_tokens.py` — esse mecanismo foi
+  desenhado para sessões de edição por-pasta-de-notícia com TTL de 4h (link
+  efêmero enviado pelo bot), semântica que não encaixa numa ferramenta de
+  navegação contínua por todo o pipeline; basic auth é a melhor opção mais simples.
+  **Ressalva de segurança**: o bloco nginx usado (`msconecta-designs`) só tem
+  `server_name` = IP direto da VPS, sem TLS configurado — o acesso é HTTP puro, a
+  senha viaja sem criptografia na rede. Aceitável por ora (mesmo nível de exposição
+  que as outras rotas desse bloco), mas vale revisitar se o dashboard passar a expor
+  ações (Fase 2) ou dados mais sensíveis.
+- Validado localmente e via nginx (autenticação correta/incorreta, fragmentos htmx,
+  estáticos) antes de considerar a fase pronta — ver `HISTORICO_MUDANCAS.md` para o
+  detalhe dos testes.
 
 ### Fase 2 — Ações no dashboard
 **Entrega:** aprovar/rejeitar/ajustar/agendar/reenviar a partir do dashboard, via a

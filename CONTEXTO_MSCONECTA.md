@@ -40,7 +40,7 @@ Todo o fluxo é pensado em torno de um **editor humano usando o Telegram como pa
 | Dashboard de monitoramento | Servidor HTTP nativo do Python (`http.server`), porta 8085 |
 | Automação de terceiros | n8n (self-hosted, usado para pelo menos um fluxo — calendário editorial de outro cliente hospedado na mesma VPS, ver observação abaixo) |
 | Proxy/servidor web | nginx |
-| Processos persistentes | systemd (4 serviços dedicados, ver seção 2) |
+| Processos persistentes | systemd (5 serviços dedicados, ver seção 2) |
 
 ### VPS x PC servidor — por que dois ambientes
 
@@ -116,6 +116,16 @@ A VPS conversa com o PC via **chamadas HTTP simples** para pequenos servidores r
 ├── dashboard.py                    # ENTRADA: dashboard web de monitoramento (systemd: msconecta-dashboard, porta 8085)
 ├── portal_config.py                # Camada de configuração multi-portal (ver seção 6)
 │
+├── msconecta.db                    # Banco SQLite do pipeline de produção editorial (ver seção 3.9)
+├── pipeline_schema.sql              # Schema do banco acima (content_items, reels, pipeline_events, system_health)
+├── pipeline_lib.py                  # Funções de parsing compartilhadas entre migração e sincronização
+├── migrar_dados_iniciais.py         # Migração única (bootstrap) dos JSONs de produção para msconecta.db
+├── sync_pipeline_db.py              # ENTRADA (cron a cada 5min): sincronização incremental de msconecta.db
+├── verificar_migracao.py            # Script de conferência manual (amostragem) da migração
+├── health_check_pipeline.py         # ENTRADA: health-check ativo por identidade de processo (ver seção 3.9)
+├── dashboard_pipeline.py            # ENTRADA: dashboard do pipeline (systemd: msconecta-pipeline-dashboard, porta 8095)
+├── static_pipeline/                 # Estáticos do dashboard do pipeline (htmx.min.js vendorizado)
+│
 ├── .env                             # Variáveis de ambiente locais ao projeto (não versionado — ver seção 4)
 ├── CLAUDE.md                        # Notas técnicas profundas sobre a lógica de geração de imagem (algoritmo de foco, quebra de linha, upscale)
 ├── MANUAL_OPERACIONAL.md            # Manual operacional (comandos do bot, arquitetura resumida) — parcialmente desatualizado, ver seção 6
@@ -142,8 +152,12 @@ Outros diretórios relacionados, fora de `/root/msconecta`:
 | `dashboard.py` | Processo persistente via systemd (`msconecta-dashboard.service`) |
 | `editor_visual.py` | Processo persistente via systemd (`msconecta-editor.service`) |
 | `/opt/msconecta-reels/server.js` | Processo persistente via systemd (`msconecta-api.service`) |
+| `dashboard_pipeline.py` | Processo persistente via systemd (`msconecta-pipeline-dashboard.service`, porta 8095 — ver seção 3.9) |
 | `monitor_noticias.py` | Cron, a cada 30 minutos |
 | `publicar_instagram.py --processar` | Cron, a cada 1 minuto |
+| `sync_pipeline_db.py` | Cron, a cada 5 minutos (ativado 2026-08-14 — ver seção 3.9) |
+| `monitor_videos.py` | Cron, `0 14,20 * * *` (14:00 e 20:00 UTC — reativado 2026-08-14 após perda acidental de crontab em 2026-06-15/16, ver `HISTORICO_MUDANCAS.md`) |
+| `health_check_pipeline.py` | Execução manual por ora — cron sugerido (`*/5 * * * *`) ainda não aprovado (ver seção 3.9) |
 | `gerar_tudo.py` | Chamado sob demanda (via `gerar_design.sh`, pelo monitor, pelo pipeline ou manualmente) |
 | `orquestrador.py` | Chamado sob demanda pelo `telegram_bot.py` (não roda sozinho) |
 | `pipeline.py`, `notificar_pautas.py`, `relatorio_diario.py`, `relatorio_semanal.py`, `monitor_saude.py` | Scripts de execução manual/pontual — **agendamento atual não identificado com certeza** (ver seção 6) |
@@ -239,6 +253,14 @@ Outros diretórios relacionados, fora de `/root/msconecta`:
 
 Ver seção 6 sobre a divergência entre a documentação (`MANUAL_OPERACIONAL.md`) e a crontab real do sistema.
 
+### 3.9 Pipeline de produção editorial (dashboard, Fases 0-1 — desde 2026-08-14)
+
+- **Objetivo**: dar visão consolidada (Kanban por estágio, planner do dia, saúde do sistema) de tudo que os JSONs de produção já registram, sem que o Telegram deixe de ser o painel de aprovação. Arquitetura completa, decisões e justificativas em `ROADMAP_PIPELINE_DASHBOARD.md` neste repositório — aqui só o resumo operacional.
+- **Arquivos**: `pipeline_schema.sql` (schema), `pipeline_lib.py` (parsing compartilhado), `migrar_dados_iniciais.py` (bootstrap único, já rodado), `sync_pipeline_db.py` (sincronização incremental contínua), `health_check_pipeline.py` (health-check ativo), `dashboard_pipeline.py` (frontend FastAPI+htmx).
+- **`sync_pipeline_db.py`**: cron a cada 5 minutos, lê `agendamentos.json`/`estado.json`/`videos_sugestoes.json` e faz upsert em `msconecta.db` — nunca escreve nos JSONs, nenhum script de produção foi alterado para chamá-lo ou depender dele.
+- **`health_check_pipeline.py`**: checa identidade de processo (não só porta) — na VPS via `systemctl` + `/proc/<pid>/cmdline` (msconecta-bot/api/editor/dashboard); no PC Windows via assinatura de resposta HTTP sobre Tailscale (`story_listener_novo.ps1` porta 8765, servidor de render porta 3001), tratando timeout de rede como `desconhecido` (não `falha`) para não confundir instabilidade do Tailscale com processo caído. **Ainda não está no cron** — rodar manualmente ou aprovar o agendamento sugerido (ver `HISTORICO_MUDANCAS.md`).
+- **`dashboard_pipeline.py`**: FastAPI + htmx (sem build step de frontend), somente leitura (conexão SQLite em modo `mode=ro`), bind em `127.0.0.1:8095`, systemd `msconecta-pipeline-dashboard.service`. Exposto via nginx em `http://72.60.151.58/pipeline` (`/etc/nginx/sites-available/msconecta-designs`), protegido por autenticação básica (`/etc/nginx/.htpasswd_pipeline`) — **HTTP puro, sem TLS**, já que o server_name é o IP direto da VPS, sem domínio configurado para esse bloco; credenciais informadas a Saulo fora deste documento.
+
 ---
 
 ## 4. INTEGRAÇÕES E DEPENDÊNCIAS
@@ -268,7 +290,8 @@ Não há `requirements.txt` nem `package.json` na raiz de `/root/msconecta` (dep
 | `dotenv` | Carregamento de variáveis de ambiente locais ao app |
 
 ### Bancos de dados / storages
-- **Não há banco de dados relacional/NoSQL tradicional.** O estado é persistido em **arquivos JSON simples** na raiz do projeto: `estado.json` (sessão/fila de aprovação atual), `agendamentos.json` (fila de posts agendados), `historico_publicacoes.json` (log de publicações), `noticias_vistas.json` e `cache_noticiasmetadados.json` (cache do monitor), `metricas_ig.json`, `videos_sugestoes.json`/`videos_vistos.json`, entre outros.
+- **Os JSONs continuam sendo a fonte de verdade em produção.** O estado é persistido em **arquivos JSON simples** na raiz do projeto: `estado.json` (sessão/fila de aprovação atual), `agendamentos.json` (fila de posts agendados), `historico_publicacoes.json` (log de publicações), `noticias_vistas.json` e `cache_noticiasmetadados.json` (cache do monitor), `metricas_ig.json`, `videos_sugestoes.json`/`videos_vistos.json`, entre outros. Nenhum script de produção foi alterado para escrever num banco — ver ponto abaixo.
+- **`msconecta.db` (SQLite, desde 2026-08-14)**: banco de leitura derivado dos JSONs acima, mantido atualizado por `sync_pipeline_db.py` (cron a cada 5 min). Existe para alimentar o dashboard do pipeline (`dashboard_pipeline.py`) sem que nenhum script de produção precise saber que ele existe — arquitetura completa em `ROADMAP_PIPELINE_DASHBOARD.md` (seções 4, 4.1, 4.2) neste mesmo repositório de docs. **Não é a fonte de verdade** — é populado por leitura, nunca o contrário.
 - **Cloudinary** é usado como storage de imagens (hospedagem temporária necessária para a Graph API do Instagram).
 - **CMS WEBSG** (site) tem seu próprio banco (não acessado diretamente — só via o formulário/endpoint HTTP documentado em `cms_msconecta.md`).
 
