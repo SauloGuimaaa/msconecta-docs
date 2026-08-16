@@ -66,7 +66,7 @@ A VPS conversa com o PC via **chamadas HTTP simples** para pequenos servidores r
 │   ├── monitor_bloco1.py          # Coleta pautas do bloco 1 (manhã)
 │   ├── monitor_bloco2.py          # Coleta pautas do bloco 2 (tarde)
 │   ├── monitor_base.py            # Funções compartilhadas (RSS, scraping) entre os dois monitores
-│   ├── buscar_imagem.py           # Busca imagem via Pexels/Unsplash quando a pauta não tem imagem própria
+│   ├── buscar_imagem.py           # Busca imagem via Pexels quando a pauta não tem imagem própria (Unsplash removido 2026-08-16)
 │   ├── buscar_imagem_smart.py     # Variante "inteligente" de busca de imagem (não detalhado neste mapeamento)
 │   ├── coletar_historico_site.py  # Coleta histórico de notícias já publicadas no site
 │   ├── analisar_historico.py      # Análises sobre o histórico coletado
@@ -197,7 +197,9 @@ Outros diretórios relacionados, fora de `/root/msconecta`:
   4. Sobrepõe o template gráfico (`moldes/feed.svg`, `moldes/story.svg`) com título (quebra de linha balanceada via programação dinâmica), editoria e identidade visual do MSConecta.
   5. Salva `feed.png`, `story.png`, `legenda.txt` e `meta.json` (parâmetros de crop, usados depois por `corrigir_posicao.py` para ajustes sem reprocessar tudo) em `output/YYYY-MM-DD/EDITORIA_titulo-slug/`.
 - **Serviços externos**: Anthropic Claude (Vision), PC Windows via Tailscale (fallback de download de imagem), proxies HTTP públicos (fallback de scraping).
-- **Upscale via IA (Real-ESRGAN/Replicate) — REMOVIDO em 2026-08-16**: existiu entre 2026-07-05 e 2026-08-16 como etapa antes do crop final (acionada por fator de escala > 1.8x ou nitidez baixa medida na imagem), validada em produção em 2026-08-06. Removida porque, em uso real, estava **borrando as imagens em vez de melhorá-las** (efeito oversmoothed, perda de textura) mesmo em chamadas que a própria API reportava como sucesso — confirmado via teste A/B lado a lado antes da remoção. Detalhes completos em `HISTORICO_MUDANCAS.md` (2026-08-16) e em `CLAUDE.md`. `REPLICATE_API_TOKEN` desativado (comentado) em `/etc/msconecta-bot.env`.
+- **Upscale via IA (Real-ESRGAN/Replicate) — REMOVIDO em 2026-08-16**: existiu entre 2026-07-05 e 2026-08-16 como etapa antes do crop final (acionada por fator de escala > 1.8x ou nitidez baixa medida na imagem), validada em produção em 2026-08-06. Removida porque, em uso real, estava **borrando as imagens em vez de melhorá-las** (efeito oversmoothed, perda de textura) mesmo em chamadas que a própria API reportava como sucesso — confirmado via teste A/B lado a lado antes da remoção. Detalhes completos em `HISTORICO_MUDANCAS.md` (2026-08-16) e em `CLAUDE.md`. `REPLICATE_API_TOKEN` removido de `/etc/msconecta-bot.env` (decisão posterior no mesmo dia: chave será revogada diretamente no painel da Replicate, sem substituição).
+
+**Unsplash — REMOVIDO em 2026-08-16 (mesma sessão)**: `journalist/buscar_imagem.py` tinha Unsplash como fallback secundário de banco de imagem (usado só pelo pipeline do Redator/pautas automáticas, quando a matéria gerada por IA não tem imagem própria — Pexels é a fonte primária, e continua ativo). Removido junto com o upscale por decisão de não manter integrações de terceiros que não agregam valor suficiente; Pexels sozinho já cobre a maior parte dos casos, com fallback gracioso ("Sem imagem") quando nada é encontrado. `UNSPLASH_KEY` removido de `/etc/environment` e `/etc/msconecta-bot.env`.
 
 ### 3.4 Monitoramento automático de notícias novas → geração de design
 
@@ -309,7 +311,6 @@ Definidas em `/root/msconecta/.env` e/ou `/etc/msconecta-bot.env` (carregado com
 | `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | Credenciais da conta Cloudinary (hospedagem de imagem) |
 | `N8N_API_KEY` / `N8N_BASE_URL` | Acesso à instância n8n usada por outro projeto na mesma VPS |
 | `PEXELS_KEY` | Busca de imagem de banco gratuito (fallback quando a notícia não tem imagem própria) |
-| `UNSPLASH_KEY` | Idem, fallback secundário de banco de imagem |
 
 ---
 
