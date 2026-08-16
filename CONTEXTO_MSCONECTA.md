@@ -31,7 +31,6 @@ Todo o fluxo é pensado em torno de um **editor humano usando o Telegram como pa
 | Bot de mensagens | Telegram Bot API, via um **servidor Telegram Bot API local** (`telegram-bot-api --local`, porta 8081) — não usa a API pública `api.telegram.org` para o bot principal |
 | Geração de imagem | Pillow (PIL), NumPy, biblioteca `seam-carving` (recorte de imagem com "seam carving"/ costura de custura mínima) |
 | IA — texto | Groq (`llama-3.3-70b-versatile`) para redação de notícias; Anthropic Claude (`claude-haiku-4-5-20251001`) para classificação de intenção do bot e para Vision (detecção de ponto focal em imagens) |
-| IA — imagem (upscale) | Real-ESRGAN via Replicate (modelo `nightmareai/real-esrgan`, versão fixada) |
 | Web scraping | `requests` + `BeautifulSoup4` |
 | CMS do site | WEBSG v5.6.3 (CMS de terceiros, PHP, acessado via automação de formulário/POST — ver `cms_msconecta.md`) |
 | APIs de redes sociais | Graph API do Instagram (`graph.instagram.com`), Graph API do Facebook (`graph.facebook.com`), API do Threads |
@@ -82,7 +81,7 @@ A VPS conversa com o PC via **chamadas HTTP simples** para pequenos servidores r
 ├── static/                       # Front-end do editor visual (editor.html), servido por editor_visual.py
 │
 ├── output/YYYY-MM-DD/EDITORIA_titulo-slug/   # Saída de cada geração de design: feed.png, story.png, legenda.txt, meta.json
-├── logs/                         # Logs das automações (telegram_bot.log, pipeline.log, pautas.log, relatorio.log, upscale_ia.log, reel.log)
+├── logs/                         # Logs das automações (telegram_bot.log, pipeline.log, pautas.log, relatorio.log, reel.log)
 ├── local-bot-api/                # docker-compose do servidor local do Telegram Bot API (dados em local-bot-api/data)
 ├── arquivo/                      # Backups pontuais de código (backup_20260610/, patches_20260616/)
 ├── relatorios/                   # PDFs de relatórios estratégicos/analíticos gerados periodicamente
@@ -127,7 +126,7 @@ A VPS conversa com o PC via **chamadas HTTP simples** para pequenos servidores r
 ├── static_pipeline/                 # Estáticos do dashboard do pipeline (htmx.min.js vendorizado)
 │
 ├── .env                             # Variáveis de ambiente locais ao projeto (não versionado — ver seção 4)
-├── CLAUDE.md                        # Notas técnicas profundas sobre a lógica de geração de imagem (algoritmo de foco, quebra de linha, upscale)
+├── CLAUDE.md                        # Notas técnicas profundas sobre a lógica de geração de imagem (algoritmo de foco, quebra de linha, upscale via IA — removido 2026-08-16)
 ├── MANUAL_OPERACIONAL.md            # Manual operacional (comandos do bot, arquitetura resumida) — parcialmente desatualizado, ver seção 6
 ├── cms_msconecta.md                 # Documentação de engenharia reversa do CMS WEBSG (campos do formulário, endpoint de publicação)
 └── PADRAO_LEGENDA.md                # Padrão de formatação das legendas de post
@@ -183,7 +182,7 @@ Outros diretórios relacionados, fora de `/root/msconecta`:
   1. **Redator** (`etapa_redator`): chama `journalist/redator.py --bloco N --numero M --data DD-MM-YYYY`, que usa o **Groq (`llama-3.3-70b-versatile`)** para escrever título, subtítulo e corpo em HTML seguindo o padrão editorial (`cms_msconecta.md` — título 60–85 caracteres, 7–9 parágrafos), e publica direto no CMS WEBSG do site (`POST .../websg/lib/actions/noticias.post.php`), retornando a URL publicada.
   2. **Designer** (`etapa_designer`): chama `gerar_tudo.py` (via `--manual` com título/editoria/imagem extraídos do JSON do redator, ou via URL) para gerar `feed.png` + `story.png`; envia preview ao Telegram com botões `Publicar agora` / `Não publicar`.
   3. **Instagram/redes** (`etapa_instagram`): ao aprovar, chama `publicar_multiplatforma.py`, que publica em Instagram (feed + story), Facebook e Threads via `publicar_instagram.py`, e registra o resultado em `historico_publicacoes.json`.
-- **Serviços externos**: Groq (redação), CMS WEBSG do site (publicação da notícia), Claude/Anthropic (Vision para posicionamento de imagem, dentro de `gerar_tudo.py`), Replicate (upscale de imagem via Real-ESRGAN, quando necessário), Instagram/Facebook/Threads Graph API, Cloudinary (hospedagem temporária das imagens para as APIs de rede social), Telegram (aprovações).
+- **Serviços externos**: Groq (redação), CMS WEBSG do site (publicação da notícia), Claude/Anthropic (Vision para posicionamento de imagem, dentro de `gerar_tudo.py`), Instagram/Facebook/Threads Graph API, Cloudinary (hospedagem temporária das imagens para as APIs de rede social), Telegram (aprovações).
 
 ### 3.3 Geração automática de design de notícia (feed + story)
 
@@ -192,16 +191,13 @@ Outros diretórios relacionados, fora de `/root/msconecta`:
 - **Gatilho**: chamado por `monitor_noticias.py` (automático), por `pipeline.py` (fluxo aprovado), ou manualmente via `gerar_design.sh URL` / comando ao bot.
 - **Passo a passo resumido** (detalhe completo em `CLAUDE.md`):
   1. Extrai a URL da imagem de capa (`scrape_noticia()`) em cascata de prioridade (implementado 2026-08-06): **(a)** procura o `<a href>` que envolve a `<img>` de capa no HTML e aponta direto para o arquivo original no CMS (`msconecta.com.br/images/noticias/...`), sem passar pelo proxy de imagens do site; **(b)** se não achar, extrai o parâmetro `src=`/`url=` de dentro de uma URL do proxy `load.websg.app.br` (em `og:image`, `twitter:image` ou `<img src>`), com URL-decode e tratamento de `&amp;`; **(c)** se nada bater (ex: notícia sem imagem de capa própria, vídeo embutido), cai no comportamento legado (`og:image`/seletores de `<img>`, forçando `w=2400&h=1600` quando a URL é do proxy WEBSG). Depois, baixa essa URL em até 3 estágios de fallback: download direto → proxy público (`codetabs`) → PC Windows via Tailscale (`http://100.108.170.120:8765/fetch-binary`).
-     **Nota**: o arquivo original (caminho a/b) costuma ter *menos* pixels nominais que a versão antiga forçada em `w=2400&h=1600` pelo proxy, porque o proxy fazia upscale artificial (interpolação, sem detalhe real) de fotos pequenas do CMS — isso mascarava o tamanho real da imagem e fazia o critério geométrico de upscale via IA (`LIMIAR_UPSCALE_IA = 1.8x`, passo 3 abaixo) nunca disparar para essas fotos. Com a URL original, o pipeline mede o tamanho real e aciona corretamente o Real-ESRGAN quando necessário, em vez de depender só do upscale genérico do proxy.
+     **Nota**: o arquivo original (caminho a/b) costuma ter *menos* pixels nominais que a versão antiga forçada em `w=2400&h=1600` pelo proxy, porque o proxy fazia upscale artificial (interpolação, sem detalhe real) de fotos pequenas do CMS — isso mascarava o tamanho real da imagem. Com a URL original, o pipeline mede o tamanho real da imagem antes do crop.
   2. **Claude Vision** (`claude-haiku-4-5-20251001`) analisa a imagem (reduzida a 512×512) para detectar o ponto focal ideal: texto relevante em placas/cartazes (prioridade máxima) → rosto humano (com heurística de escolha entre múltiplos rostos) → elemento/sujeito principal.
-  3. Se a imagem for pequena/borrada demais para o crop necessário, roda **upscale via IA** (Real-ESRGAN/Replicate) antes do crop final.
-  4. Recorta e redimensiona a imagem para o canvas de cada formato, aplicando "seam carving" (recorte com preservação de conteúdo) quando o corte horizontal for muito agressivo no feed.
-  5. Sobrepõe o template gráfico (`moldes/feed.svg`, `moldes/story.svg`) com título (quebra de linha balanceada via programação dinâmica), editoria e identidade visual do MSConecta.
-  6. Salva `feed.png`, `story.png`, `legenda.txt` e `meta.json` (parâmetros de crop, usados depois por `corrigir_posicao.py` para ajustes sem reprocessar tudo) em `output/YYYY-MM-DD/EDITORIA_titulo-slug/`.
-- **Serviços externos**: Anthropic Claude (Vision), Replicate (Real-ESRGAN), PC Windows via Tailscale (fallback de download de imagem), proxies HTTP públicos (fallback de scraping).
-- **Validação em produção da extração via `<a href>` (2026-08-06)**: confirmado que `REPLICATE_API_TOKEN` está presente e válido em `/etc/msconecta-bot.env` (o `.env` real sourceado pelo cron do `monitor_noticias.py`/`publicar_instagram.py` — `/root/msconecta/.env`, usado só em execução manual, NÃO tem essa chave). Rodado o pipeline completo nesse ambiente real: Real-ESRGAN acionado com sucesso (`900×675 → 1800×1350` em 9,7s) para a notícia 15636 (imagem original abaixo de 1080px de largura), `story.png`/`feed.png` resultantes com qualidade visual boa (sem blur/pixelização perceptível). O próprio cron, já rodando com a mudança em produção desde o commit, gerou mais 2 designs reais no mesmo intervalo com upscale bem-sucedido (ver `logs/upscale_ia.log`) — 0 falhas registradas até o momento.
-  - **Tratamento de falha do Replicate**: `upscale_imagem_ia()` nunca derruba o pipeline (try/except cobre toda chamada à API) — em caso de falha, retorna a imagem original e grava uma linha "FALHA" em `logs/upscale_ia.log`. Só existe suavização de fallback (Lanczos 2 passos + blur leve) quando `fator_escala > 3.0`; entre 1.8x–3.0x, uma falha do Replicate resulta em resize Lanczos simples sem tratamento extra (equivalente à qualidade de antes desta mudança).
-  - **Gap identificado**: essa falha não gera alerta ativo (Telegram ou monitoramento de log) — `monitor_noticias.py` roda `gerar_tudo.py` com `subprocess.run(capture_output=True)` e só repassa 4 linhas específicas de stdout (`OUTPUT_PATH`/`IMG_URL`/`EDITORIA`/`LEGENDA_B64`); avisos de upscale ficam só no log passivo. O único fator mitigante é que nada publica automaticamente: toda geração passa por aprovação manual no Telegram (botões "Postar agora"/"Pular design") antes de ir pro Instagram/Facebook/Threads, então um humano vê a imagem antes da publicação — mas essa checagem depende de reparar visualmente o blur numa preview pequena, não é um alerta direcionado. Recomendado como melhoria futura (não bloqueante): incluir aviso na notificação do Telegram quando `upscale_imagem_ia()` falhar ou o fallback de baixa resolução (`fator_escala > 3.0`) for acionado.
+  3. Recorta e redimensiona a imagem para o canvas de cada formato (Lanczos; suavização em 2 etapas + leve blur quando o fator de escala excede 3x), aplicando "seam carving" (recorte com preservação de conteúdo) quando o corte horizontal for muito agressivo no feed.
+  4. Sobrepõe o template gráfico (`moldes/feed.svg`, `moldes/story.svg`) com título (quebra de linha balanceada via programação dinâmica), editoria e identidade visual do MSConecta.
+  5. Salva `feed.png`, `story.png`, `legenda.txt` e `meta.json` (parâmetros de crop, usados depois por `corrigir_posicao.py` para ajustes sem reprocessar tudo) em `output/YYYY-MM-DD/EDITORIA_titulo-slug/`.
+- **Serviços externos**: Anthropic Claude (Vision), PC Windows via Tailscale (fallback de download de imagem), proxies HTTP públicos (fallback de scraping).
+- **Upscale via IA (Real-ESRGAN/Replicate) — REMOVIDO em 2026-08-16**: existiu entre 2026-07-05 e 2026-08-16 como etapa antes do crop final (acionada por fator de escala > 1.8x ou nitidez baixa medida na imagem), validada em produção em 2026-08-06. Removida porque, em uso real, estava **borrando as imagens em vez de melhorá-las** (efeito oversmoothed, perda de textura) mesmo em chamadas que a própria API reportava como sucesso — confirmado via teste A/B lado a lado antes da remoção. Detalhes completos em `HISTORICO_MUDANCAS.md` (2026-08-16) e em `CLAUDE.md`. `REPLICATE_API_TOKEN` desativado (comentado) em `/etc/msconecta-bot.env`.
 
 ### 3.4 Monitoramento automático de notícias novas → geração de design
 
@@ -276,7 +272,6 @@ Não há `requirements.txt` nem `package.json` na raiz de `/root/msconecta` (dep
 | `numpy` | Suporte numérico para o `seam-carving` |
 | `seam-carving` | Recorte de imagem com preservação de conteúdo (usado no feed) |
 | `anthropic` (SDK oficial) | Claude Vision (foco de imagem) e classificação de intenção do bot |
-| `replicate` (SDK oficial) | Upscale de imagem via Real-ESRGAN |
 | `fastapi` + `uvicorn` | Servidor do editor visual |
 
 ### Dependências Node.js (`/opt/msconecta-reels/package.json`)
@@ -383,13 +378,10 @@ Dezenas de arquivos `.bak`, `.bak_YYYYMMDD_HHMMSS` de scripts centrais (`gerar_t
 ### Pasta compartilhada entre projetos não relacionados
 `/root/msconecta` mistura os scripts do portal de notícias com automação de um cliente de restaurante ("Funky Fresh": `atualizar_cardapio.sh`, `cardapio_funky_fresh.json`, `funky_metricas.py`, `renovar_token_funky.py`, entre outros). Isso aumenta o risco de alterações num projeto afetarem acidentalmente o outro (e já é fonte de ruído na leitura da crontab e da listagem de arquivos).
 
-### Calibração pendente do critério de upscale por qualidade
-Documentado no próprio `CLAUDE.md`: o limiar `LIMIAR_NITIDEZ_BAIXA = 15.0` (usado para decidir se uma imagem "naturalmente borrada" deve passar por upscale via IA mesmo sem necessidade geométrica) foi calibrado sobre um espaço de medição diferente do que o código realmente usa em produção (crop final vs. imagem fonte completa) — o próprio código admite que esse critério "dificilmente vai disparar" como planejado. Não tratar esse valor como validado. Ver [[msconecta_upscale_ia]] para o histórico da implementação do upscale via IA.
-
 ### Retenção de output
 `limpar_output.py` remove pastas de `output/` com mais de 30 dias — mas **não há evidência de que esse script esteja agendado** (não aparece na crontab nem em systemd). `output/` já ocupa ~2,5 GB (82 pastas de datas), então vale confirmar se a limpeza está de fato rodando periodicamente.
 
 ### Monitoramento e logs existentes
-- Logs de aplicação em `logs/` (`telegram_bot.log`, `pipeline.log`, `pautas.log`, `relatorio.log`, `upscale_ia.log`, `reel.log`, entre outros) e na raiz (`instagram.log`, `monitor.log`), rotacionados via `logrotate` (`/etc/logrotate.d/msconecta` — diário, mantém 14 dias, compressão).
+- Logs de aplicação em `logs/` (`telegram_bot.log`, `pipeline.log`, `pautas.log`, `relatorio.log`, `reel.log`, entre outros) e na raiz (`instagram.log`, `monitor.log`), rotacionados via `logrotate` (`/etc/logrotate.d/msconecta` — diário, mantém 14 dias, compressão).
 - `dashboard.py` oferece um painel web em tempo real com status dos serviços/integrações (porta 8085, autenticado por token em `.dashboard_token` para o endpoint de ações).
 - `monitor_saude.py` implementa alerta de mudança de estado (OK↔falha) dos serviços via Telegram, mas seu agendamento atual não foi confirmado (ver acima).
