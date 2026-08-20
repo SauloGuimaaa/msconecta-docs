@@ -9,6 +9,17 @@ Formato de cada entrada:
 
 ---
 
+## 2026-08-20 — [PC Windows] Corrige condição de corrida entre process_watchdog.ps1 e boot_reconciliation.ps1 no boot (agiam simultaneamente sobre a mesma Scheduled Task)
+
+- **O que mudou:** no PC Windows, `process_watchdog.ps1` (trigger `AtLogon`, loop contínuo de supervisão) e `boot_reconciliation.ps1` (trigger `AtStartup`, reconciliação pontual) podiam agir **simultaneamente** sobre a mesma Scheduled Task alvo, `MSConectaPublicadorPM2`, logo após o boot da máquina — condição de corrida detectada hoje às 11:04:34. **Fix:** `process_watchdog.ps1` agora checa `(Get-Date) - LastBootUpTime` no início de cada ciclo do seu loop principal; se o PC ligou há menos de 5 minutos, o script apenas loga e dorme, sem checar nem agir sobre nenhuma task nesse ciclo, deixando `boot_reconciliation.ps1` como único responsável pela reconciliação inicial nessa janela.
+- **Testado:** sintaxe válida (parser do PowerShell); lógica do guard validada isoladamente com valores simulados (2.3min desde o boot → pula corretamente a ação; 7.8min → segue normal); confirmado que não interfere no comportamento atual da máquina (boot há 63.8min no momento do teste, fora da janela de guard).
+- **Aplicado em produção** via reinício da Scheduled Task `MSConectaProcessWatchdog`, sem esperar o próximo boot.
+- **Arquivos/serviços afetados:** `process_watchdog.ps1` (PC Windows, `C:\MSConecta` — fora do controle de versão, fix vive só na máquina); Scheduled Task `MSConectaProcessWatchdog` (reiniciada); `CONTEXTO_MSCONECTA.md` (seção 6, nova subseção registrando o incidente como resolvido).
+- **Motivo:** eliminar a condição de corrida entre duas automações concorrentes agindo sobre o mesmo alvo (`MSConectaPublicadorPM2`) na janela de boot, que podia deixar o estado da Scheduled Task inconsistente dependendo de qual dos dois scripts "vencesse" a corrida.
+- **Autor:** Saulo (fix aplicado e testado diretamente no PC; documentado aqui por Claude Code a pedido de Saulo, fora do escopo de código desta sessão).
+
+---
+
 ## 2026-08-20 — Editor visual sem carregar imagem (502) + notícias do dia sem gerar design: mesma causa raiz (instabilidade do PC Windows), dois bugs reais corrigidos, uma hipótese descartada e um drift de documentação corrigido
 
 - **Contexto do pedido:** Saulo reportou dois sintomas concorrentes há 30min-1h: (1) o editor visual (porta 8090) abria mas a imagem não carregava, dando timeout; (2) nenhuma notícia do dia tinha gerado design. Pediu para descartar primeiro a hipótese de que o upscale via IA reintroduzido em 08-19 (`REPLICATE_API_TOKEN` supostamente ainda ausente, aguardando chave nova) estivesse travando o pipeline inteiro.
