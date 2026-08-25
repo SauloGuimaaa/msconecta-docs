@@ -341,8 +341,11 @@ agora — quantas notícias em cada estágio, o que sai hoje, o que está saudá
   processo: VPS via `systemctl` + `/proc/<pid>/cmdline` (msconecta-bot/api/editor/
   dashboard); PC Windows via assinatura de resposta HTTP sobre Tailscale
   (`story_listener_novo.ps1` porta 8765, servidor de render porta 3001), timeout de
-  rede tratado como `desconhecido`, não `falha`. Roda manualmente por ora — cron
-  sugerido ainda não aprovado (ver `HISTORICO_MUDANCAS.md`).
+  rede tratado como `desconhecido`, não `falha` — **exceto** quando o outro serviço
+  do PC responde `ok` no mesmo ciclo (`_cruzar_status_pc()`, adicionado 2026-08-25),
+  caso em que o timeout é reclassificado para `falha` (rede confirmada saudável,
+  só o processo caiu). **Cron ativado em 2026-08-25** (`*/5 * * * *`, ver
+  `HISTORICO_MUDANCAS.md`).
 - **Dashboard** (`dashboard_pipeline.py`): FastAPI + htmx, sem build step de
   frontend (decisão confirmada — complexidade de SPA não se justifica antes da
   Fase 2). Conexão SQLite em modo `mode=ro` (somente leitura garantida a nível de
