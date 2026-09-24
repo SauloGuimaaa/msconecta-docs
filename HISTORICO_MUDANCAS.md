@@ -9,6 +9,15 @@ Formato de cada entrada:
 
 ---
 
+## 2026-09-24 — Criação do `ROADMAP_ALTO_VOLUME.md` (plano para adaptar o pipeline a 60+ notícias/dia)
+
+- **O que mudou:** novo documento de planejamento `ROADMAP_ALTO_VOLUME.md` na raiz do repositório, com 4 fases (0 — investigação dos limites reais da Meta Graph API e auditoria de perdas na descoberta; 1 — paginação e processamento sem teto de 5/ciclo no `monitor_noticias.py`, com alerta explícito em falha; 2 — modo de revisão rápida no Board; 3 — distribuição de publicação no mesmo dia no ritmo seguro medido na Fase 0). Registra como restrição não-negociável que a aprovação de cada notícia continua 100% manual, feita por Saulo. Nenhuma fase iniciada ainda; nenhuma mudança de código, configuração ou infraestrutura.
+- **Arquivos/serviços afetados:** `ROADMAP_ALTO_VOLUME.md` (novo). Nenhum serviço afetado.
+- **Motivo:** dia com 60+ notícias publicadas no site — o dobro da linha de base (~30/dia) documentada em `CONTEXTO_MSCONECTA.md` — e necessidade de preparar o pipeline para esse volume potencialmente virar rotina (limitação de página-1 + 5-por-ciclo do `monitor_noticias.py` e rate-limit da Meta observado no incidente do mesmo dia, entrada abaixo).
+- **Autor:** Claude Code / Saulo.
+
+---
+
 ## 2026-09-24 — Diagnóstico e correção: fila de publicação travada por 9h13min (lock `fcntl` preso por chamada Graph API sem timeout) + recuperação dos posts represados, com achado colateral de rate-limit da Meta durante o catch-up
 
 - **Contexto do pedido:** Saulo reportou que várias notícias já aprovadas/agendadas para publicar a partir das 7h (horário de Campo Grande) não tinham saído — só voltou a publicar "recentemente". Pedido explícito: investigar causa raiz com evidência real (não só log), corrigir de forma segura se for baixo risco, e só então disparar as publicações represadas uma de cada vez, confirmando sucesso real via API antes de seguir para a próxima.
