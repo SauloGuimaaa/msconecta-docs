@@ -75,6 +75,44 @@ Formato de cada entrada:
 
 ---
 
+## 2026-09-24 — Diagnóstico de performance do Instagram (volume × alcance, 180 dias) + cron de snapshot de stories
+
+- **O que mudou:**
+  - Diagnóstico **só de leitura** do Instagram @msconecta, a pedido de Saulo. Pergunta: o volume alto de posts está diluindo o alcance, e quais conteúdos fazem a conta crescer?
+  - Nada foi publicado, apagado ou alterado na conta.
+  - Coleta via Graph API de 2.715 mídias (30/03–24/09/2026) com insights por post, 180 dias de insights diários da conta (reach, accounts_engaged, total_interactions, views, `follows_and_unfollows` e `reach` com breakdown `follow_type`) e `follower_count`.
+  - Os 2.715 posts foram classificados com Claude (`claude-opus-5`, Message Batches) por origem, editoria, escopo, formato e gancho. Cruzamento com `historico_completo.json` para a série longa.
+  - Entregáveis em `/root/msconecta/diagnostico_ig/`: `relatorio_diagnostico.md`, `posts_enriquecidos.csv`, `resultados.json`, `graficos/*.png`, scripts reprocessáveis.
+  - **Única mudança de infraestrutura:** nova linha no crontab (`13 */2 * * *`, `stories_diario.py`), também de leitura, para acumular dados de stories (ver `CONTEXTO_MSCONECTA.md`).
+- **Principais achados** ([C] = correlação, não prova causa):
+  - (1) O alcance somado dos cards próprios fica em ~1,0–1,1 mi/mês, com 218 cards (jun) ou 508 (jul). 724 cards (ago) deram 1,55 mi: 3,3× mais peças para +50% de alcance.
+  - (2) O alcance de seguidores é estável (10–15 mil/dia) com qualquer volume. Elasticidade do alcance diário ao nº de posts, com efeito fixo de mês: 0,13 (IC95 −0,06 a 0,32), indistinguível de zero; ganho marginal abaixo de 1% do alcance diário a partir de ~14 posts/dia [C].
+  - (3) 66% dos cards saem menos de 30 min depois do anterior. Post isolado alcança 1,45× a mediana do mês; post "colado", 0,98× [C].
+  - (4) Serviço/utilidade de Campo Grande e nacional lidera em compartilhamentos e follows (2,1 follows por mil de alcance). Serviço de prefeitura do interior (301 cards, o maior grupo) rende 1,0 mil de mediana.
+  - (5) **Desde a semana de 10/08**, o repost de vídeo de terceiro caiu de 15–22 mil para ~5 mil de alcance mediano. O alcance de não seguidores caiu de ~90 mil para 11–25 mil/dia e os follows líquidos, de ~140 para 30–60/dia. É compatível com a regra do Instagram contra contas agregadoras (30/04), com defasagem — hipótese a confirmar no status da conta no app.
+  - (6) Cada story alcança ~30–36 contas (0,05% dos seguidores) com ~25 stories/dia. Dado preliminar (1 snapshot); o cron novo vai consolidar.
+  - Recomendação: 10–12 posts de feed/dia (8–10 cards + 1–2 Reels próprios), espaçados ≥ 60 min entre 6h30 e 21h30, com teste de 4 semanas para validar.
+- **Vieses checados:**
+  - Virais: top 1% com alcance acima de 60 mil; 44 dias dominados por 1 post. Todas as comparações usam mediana/normalização, e a regressão foi refeita sem esses dias.
+  - Impulsionamento: não exposto pela API; 3 suspeitos listados no relatório.
+  - Confundimento tempo × volume.
+  - Seleção na canibalização.
+  - Classificação por LLM, conferida em amostra de 40.
+- **Notas técnicas para quem reprocessar:**
+  - `INSTAGRAM_TOKEN` de `/etc/environment` está **desatualizado** (erro 190, sessão invalidada). O válido é o de `/root/msconecta/.env`, o mesmo do `publicar_instagram.py`.
+  - Os insights diários da conta são agregados em **dias do Pacífico** (virada 07:00 UTC ≈ 03:00 em Campo Grande): uma janela `since`/`until` de 00:00–24:00 UTC do dia D devolve o dia D−1 do Pacífico, e uma janela alinhada às 07:00 soma dois dias. O `analisar.py` corrige isso.
+  - `boost_ads_list` não existe na API com login do Instagram.
+  - Insights diários de conta levaram ~540 chamadas; insights por post, ~2.700. O header `x-app-usage` ficou em 0% durante toda a coleta.
+- **Arquivos/serviços afetados:**
+  - novo diretório `/root/msconecta/diagnostico_ig/`;
+  - nova linha no crontab do root (`stories_diario.py`);
+  - `CONTEXTO_MSCONECTA.md` (tabela de agendamentos).
+  - Nenhum script de produção alterado.
+- **Motivo:** decidir o volume diário, o mix de formatos e a janela de horários com base em dados, e entender a queda recente de alcance.
+- **Autor:** Claude Code / Saulo.
+
+---
+
 ## 2026-09-24 — Criação do `ROADMAP_ALTO_VOLUME.md` (plano para adaptar o pipeline a 60+ notícias/dia)
 
 - **O que mudou:** novo documento de planejamento `ROADMAP_ALTO_VOLUME.md` na raiz do repositório, com 4 fases (0 — investigação dos limites reais da Meta Graph API e auditoria de perdas na descoberta; 1 — paginação e processamento sem teto de 5/ciclo no `monitor_noticias.py`, com alerta explícito em falha; 2 — modo de revisão rápida no Board; 3 — distribuição de publicação no mesmo dia no ritmo seguro medido na Fase 0). Registra como restrição não-negociável que a aprovação de cada notícia continua 100% manual, feita por Saulo. Nenhuma fase iniciada ainda; nenhuma mudança de código, configuração ou infraestrutura.
