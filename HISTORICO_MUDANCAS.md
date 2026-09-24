@@ -9,6 +9,18 @@ Formato de cada entrada:
 
 ---
 
+## 2026-09-24 (continuação 2) — `FACEBOOK_SYSTEM_TOKEN` removido também de `/etc/msconecta-bot.env`, `/etc/environment` e `/etc/profile.d/msconecta.sh`
+
+- **O que mudou:** a pedido de Saulo, a linha do token morto (código 190/460) foi apagada de `/etc/msconecta-bot.env` e `/etc/environment`, e também de **`/etc/profile.d/msconecta.sh`**. Esse terceiro arquivo não estava na lista original: é uma cópia do mesmo valor, encontrada ao varrer o host, e é carregada em todo login de shell. Foi incluído porque o objetivo era eliminar o token morto, e o valor é idêntico, conferido por hash. Backups: `/etc/msconecta-bot.env.bak_20260924_225229`, `/etc/environment.bak_20260924_225229`, `/root/msconecta/backups/profile.d_msconecta.sh.bak_20260924_225229` (o backup do profile.d fica fora de `/etc/profile.d`). Permissões preservadas (600/644/755, root).
+- **Checagens antes de apagar:** varredura de `/root`, `/opt` e `/etc`. `renovar_token_funky.py` (que reescreve `/etc/environment` nos dias 5 e 20) só remove e regrava a própria chave `INSTAGRAM_TOKEN_FUNKY` e preserva as demais linhas, então não recoloca o token. Os crons da Funky Fresh que carregam `/etc/environment` não usam essa variável.
+- **Verificação depois:** `bash -n` OK nos 3 arquivos. As variáveis essenciais continuam presentes em `/etc/msconecta-bot.env` e num login shell limpo (`INSTAGRAM_TOKEN`, `INSTAGRAM_USER_ID`, `FACEBOOK_PAGE_TOKEN`, `FACEBOOK_PAGE_ID`, `THREADS_TOKEN`, `THREADS_USER_ID`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`). `publicar_reel.py` resolve o token normalmente no ambiente do cron (o bloco que carrega `/etc/environment` quando `FACEBOOK_SYSTEM_TOKEN` falta passa a rodar sempre, e é inofensivo). Serviços `msconecta-bot/api/editor/pipeline-dashboard` continuam `active` (não reiniciados; ainda têm o valor antigo em memória, sem uso). **Publicação real do cron às 23:00 UTC, a primeira sem o token no ambiente:** container do Feed criado com `INSTAGRAM_TOKEN` normalmente (autenticação OK), Story/Threads (`18116894980990405`)/Facebook (`1387991003493679`) publicados. O **Feed falhou no `media_publish` com `User is performing too many actions`**: é o mesmo rate-limit que aconteceu o dia todo (ver Fase 0 do `ROADMAP_ALTO_VOLUME.md`), não tem relação com a remoção. Foi também o **primeiro alerta real de Feed** do código novo, entregue ao Telegram (nenhuma linha `[alerta]` de falha no log) e já com `code`/`subcode` do erro.
+- **Não tocado (resíduos, registrados em `CONTEXTO_MSCONECTA.md` 3.5):** snapshot de ambiente do pm2 `korabot-landing` (`/root/.pm2/dump.pm2`) e o portal separado **SPConecta** (`/root/spconecta/.env`). Neste, o mesmo token morto é o token **principal**, não fallback, em `publicar_instagram.py`/`publicar_reel.py`/`metricas_instagram.py`. Se o SPConecta estiver em uso, essas chamadas devem estar falhando; precisa de investigação própria.
+- **Arquivos/serviços afetados:** `/etc/msconecta-bot.env`, `/etc/environment`, `/etc/profile.d/msconecta.sh`.
+- **Motivo:** o token está confirmado morto e sem uso real; manter cópias espalhadas só gera confusão em diagnósticos futuros.
+- **Autor:** Claude Code / Saulo.
+
+---
+
 ## 2026-09-24 (continuação) — Alertas Telegram estendidos para Feed e Threads + remoção de `FACEBOOK_SYSTEM_TOKEN` do `.env` + decisão de não republicar o Facebook em massa
 
 - **Decisões de Saulo (sobre as pendências da entrada abaixo):** (1) **não republicar** as ~301 notícias que ficaram sem Facebook entre 09-10 e 09-24; reprocessamento só caso a caso, manualmente, por decisão dele; (2) remover `FACEBOOK_SYSTEM_TOKEN` do `.env`; (3) estender a Feed e Threads o mesmo padrão de alerta criado para o Facebook.
