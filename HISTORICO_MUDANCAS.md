@@ -9,6 +9,33 @@ Formato de cada entrada:
 
 ---
 
+## 2026-09-24 — Diagnóstico e correção: Facebook Page falhava 100% desde 2026-09-10 com `publish_actions deprecated` (token de System User usado onde a API exige token de Página) + alerta Telegram para toda falha do Facebook
+
+- **Contexto do pedido:** achado colateral da Fase 0 do `ROADMAP_ALTO_VOLUME.md`, tratado por Saulo como urgente: confirmar a extensão, separar causa de TOKEN de causa de CÓDIGO, adicionar alerta e corrigir se fosse de baixo risco.
+
+### Extensão (evidência de log)
+- `instagram.log` + rotacionados (retenção: 2026-09-10 13:00 UTC a 2026-09-24): **301 tentativas de publicar no Facebook, 301 falhas (100%, sem nenhuma intermitência)**, todas com `(#200) The permission(s) publish_actions are not available. It has been deprecated.` Por dia: 38, 16, 9, 7, 16, 10, 10, 9, 9, 8, 12, 29, 37, 43, 48 (de 09-10 a 09-24). Primeira falha retida: 2026-09-10 13:01:48; última: 2026-09-24 22:16:49.
+- **Início provável: 2026-09-09 15:25 UTC**, quando `FACEBOOK_PAGE_TOKEN` foi trocado nos 3 arquivos de env (`.env.bak_20260909_152523` / `/etc/msconecta-bot.env.bak_20260909_152523` marcam a troca) depois do diagnóstico da troca de senha (entrada de 2026-09-09 abaixo). Antes da troca o erro era outro (sessão invalidada). Não há log retido entre 09-09 15:25 e 09-10 13:00 para confirmar o minuto exato.
+- **Nenhum alerta em 15 dias**: a falha só gerava uma linha de log, e `publicar_feed_e_story()` segue normalmente depois dela.
+
+### Causa raiz: TOKEN do tipo errado (não falta de permissão, não endpoint antigo)
+- `debug_token` no `FACEBOOK_PAGE_TOKEN` atual (valor não exibido): **válido, sem expiração, `type=SYSTEM_USER`** (usuário "publisher_bot", app "Publisher"), **com `pages_manage_posts`**, `pages_read_engagement` e `pages_show_list`. Ou seja, **a permissão existe**; o que está errado é o **tipo** do token: foi salvo o token do System User em vez do token da Página.
+- A documentação oficial de `POST /{page-id}/photos` exige "A **Page access token** ... `pages_manage_posts`, `pages_read_engagement`, `pages_show_list`". Com um token de usuário, a Graph API interpreta a chamada como publicação em nome do usuário e responde com o erro de `publish_actions`, a permissão antiga (extinta em 2018) que cobria esse caso. Por isso o erro parece "endpoint velho", mas não é.
+- **Código não estava desatualizado**: `graph.facebook.com/v19.0/{PAGE_ID}/photos` com `url` + `caption` é o endpoint e os parâmetros atuais documentados (`message` é que está deprecado).
+- O System User está atribuído à Página com as tarefas `CREATE_CONTENT`/`MANAGE` (`GET /me/accounts`), e `GET /{PAGE_ID}?fields=access_token` devolve um token de Página válido: `type=PAGE`, `profile_id` = a Página MSConecta, sem expiração, com `pages_manage_posts`. **Não é preciso gerar token novo no painel da Meta.**
+
+### Fix aplicado (baixo risco, só `publicar_instagram.py`, backup em `publicar_instagram.py.bak_20260924_222857`)
+- **`_obter_page_token(page_id, token)`**: deriva o token da Página em tempo de execução, antes de cada `POST /{PAGE_ID}/photos`. Se a derivação falhar, devolve o token original (o mesmo comportamento de antes). Funciona tanto com o token de System User atual quanto com um eventual token de Página salvo no futuro.
+- **`_alertar_telegram(msg)`**: envio direto ao Telegram do editor (`TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` de `/etc/msconecta-bot.env`, com fallback para `portal_config`). É chamado em **todos** os caminhos de falha do Facebook (erro retornado pela API, exceção, token ausente), com o título da notícia e a mensagem de erro. Nunca levanta exceção e nunca loga a URL com o token do bot. Foi feito em Telegram, e não WhatsApp, porque o `openclaw` não está no PATH do cron (achado do incidente anterior do mesmo dia).
+- **Validação real**: (1) teste isolado dos dois helpers — o token derivado tem `type=PAGE`, e a mensagem de teste chegou no Telegram; (2) **publicação real do cron às 22:30 UTC** (`OPORTUNIDADES_ms-florestal-abre-inscricoes-para-curso-`): `Facebook publicado! ID: 1387974036828709`, confirmado via `GET /1387974036828709` (`from: MSConecta`, `created_time 2026-09-24T22:31:57`). É o primeiro post do Facebook desde pelo menos 2026-09-10.
+
+- **Não feito nesta sessão (pendências):** (1) as ~301 notícias sem Facebook desde 09-10 **não foram republicadas**: republicar em massa é decisão editorial de Saulo, e o volume esbarraria em limites; (2) `FACEBOOK_SYSTEM_TOKEN` continua **inválido** (código 190/460, sessão invalidada pela troca de senha). É usado só como fallback de `INSTAGRAM_TOKEN` em `publicar_instagram.py`/`publicar_reel.py`/`metricas_instagram.py`, sem efeito hoje, mas é um fallback morto (remover ou substituir pelo token de System User); (3) os mesmos alertas ainda não existem para falhas de Threads e Feed — só o Facebook foi coberto, conforme o pedido.
+- **Arquivos/serviços afetados:** `publicar_instagram.py` (2 funções novas + bloco do Facebook). Nenhuma mudança em tokens/arquivos de env. `CONTEXTO_MSCONECTA.md` seção 3.5 atualizada.
+- **Motivo:** o Facebook Page ficou 15+ dias sem nenhuma publicação, em silêncio. A causa era o tipo de token salvo na troca de 09-09, não uma permissão faltando nem um endpoint descontinuado. Isso permitiu corrigir no código, sem depender de uma nova ida ao painel da Meta.
+- **Autor:** Claude Code / Saulo.
+
+---
+
 ## 2026-09-24 — Criação do `ROADMAP_ALTO_VOLUME.md` (plano para adaptar o pipeline a 60+ notícias/dia)
 
 - **O que mudou:** novo documento de planejamento `ROADMAP_ALTO_VOLUME.md` na raiz do repositório, com 4 fases (0 — investigação dos limites reais da Meta Graph API e auditoria de perdas na descoberta; 1 — paginação e processamento sem teto de 5/ciclo no `monitor_noticias.py`, com alerta explícito em falha; 2 — modo de revisão rápida no Board; 3 — distribuição de publicação no mesmo dia no ritmo seguro medido na Fase 0). Registra como restrição não-negociável que a aprovação de cada notícia continua 100% manual, feita por Saulo. Nenhuma fase iniciada ainda; nenhuma mudança de código, configuração ou infraestrutura.
