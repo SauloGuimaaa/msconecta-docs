@@ -233,6 +233,7 @@ Outros diretórios relacionados, fora de `/root/msconecta`:
 - **Fluxo**: faz scraping da listagem `https://msconecta.com.br/noticias` (`scrape_noticias()`, desde 2026-08-16 com PC Windows como **primeira** via — antes era a última — e proxies públicos só como fallback, ver `HISTORICO_MUDANCAS.md` 2026-08-16 continuação) → compara com `noticias_vistas.json` para achar notícias ainda não processadas → para cada notícia nova (limite de 5 por ciclo), chama `gerar_design.sh` → notifica o resultado no Telegram com botões (`✅ Postar agora`, `⏰ Programar`, `🖼 Reposicionar`, `⏭ Pular design`) e enfileira a aprovação em `estado.json` (`fila_aprovacao`). Só marca a notícia como "vista" se o design foi gerado com sucesso (falhas são re-tentadas no próximo ciclo).
 - **Serviços externos**: os mesmos de `gerar_tudo.py` (seção 3.3), mais Telegram.
 - **Nota (2026-09-01)**: `_fetch_via_pc_servidor()` engolia silenciosamente qualquer resposta HTTP não-200 ou `ok:false` do PC (`/fetch-url`), sem logar nada — mascarou um incidente real de DNS quebrado no PC Windows (ver seção 6, "Segunda via de bypass do Cloudflare silenciosamente quebrada"). Corrigido para logar o corpo da resposta em ambos os casos.
+- **Planejamento em andamento (2026-09-24)**: o limite de página 1 + 5 por ciclo descrito acima é o gargalo tratado pela Fase 1 de `ROADMAP_ALTO_VOLUME.md` neste repositório (plano para 60+ notícias/dia, com aprovação manual mantida) — ler antes de alterar este script.
 
 ### 3.5 Publicação multiplataforma (Instagram, Facebook, Threads) e agendamentos
 
