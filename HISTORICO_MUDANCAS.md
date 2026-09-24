@@ -9,6 +9,22 @@ Formato de cada entrada:
 
 ---
 
+## 2026-09-24 (continuação) — Alertas Telegram estendidos para Feed e Threads + remoção de `FACEBOOK_SYSTEM_TOKEN` do `.env` + decisão de não republicar o Facebook em massa
+
+- **Decisões de Saulo (sobre as pendências da entrada abaixo):** (1) **não republicar** as ~301 notícias que ficaram sem Facebook entre 09-10 e 09-24; reprocessamento só caso a caso, manualmente, por decisão dele; (2) remover `FACEBOOK_SYSTEM_TOKEN` do `.env`; (3) estender a Feed e Threads o mesmo padrão de alerta criado para o Facebook.
+- **Remoção do token morto:** a linha `FACEBOOK_SYSTEM_TOKEN=` foi apagada de `/root/msconecta/.env` (backup em `.env.bak_20260924_224118`). Antes de remover, conferi que ninguém depende dele: só aparece como fallback de `INSTAGRAM_TOKEN` (`publicar_instagram.py`, `publicar_reel.py`, `metricas_instagram.py`) e na chave `facebook_token` de `portal_config.py`, que nenhum script lê. **Continua presente em `/etc/msconecta-bot.env` e `/etc/environment`**, que não foram tocados porque o pedido citava só o `.env`. Como o cron carrega `/etc/msconecta-bot.env`, a variável ainda existe no ambiente do `publicar_instagram.py`, sem efeito enquanto `INSTAGRAM_TOKEN` estiver definido.
+- **Alertas (`publicar_instagram.py`, backup em `publicar_instagram.py.bak_20260924_224155`)**, reaproveitando `_alertar_telegram()`:
+  - **Feed:** novo `_ultimo_erro_feed` guarda o último erro de `criar_container()`/`aguardar_pronto()`/`publicar_container()`, **com `code`/`subcode`**. Isso também resolve a pendência da Fase 0 do `ROADMAP_ALTO_VOLUME.md`: o próximo "too many actions" vai revelar o código real no alerta. Há alerta em todo `feed_ok=False` (erro da API, exceção, `INSTAGRAM_TOKEN` ausente) e na falha de upload ao Cloudinary (nada publica).
+  - **Threads:** alerta quando as 3 tentativas falham (erro da última, com `code`/`subcode`), em exceção e em `THREADS_TOKEN`/`THREADS_USER_ID` ausente.
+  - **Mudança de comportamento (deliberada):** uma exceção no bloco do Feed (ex.: timeout de rede) antes derrubava a função inteira, e Story/Threads/Facebook nem eram tentados. Agora é capturada, gera alerta, e o fluxo segue, como os blocos de Threads/Facebook já faziam.
+  - Story (PC Windows) não coberto, fora do pedido. Continua só com o aviso de publicação parcial via `openclaw`, que não funciona no cron.
+- **Testes (nada publicado de verdade):** `publicar_feed_e_story()` rodou numa pasta real com todas as chamadas simuladas (Graph API, Threads, Facebook, Cloudinary, PC Windows) e só o Telegram real. **4 alertas reais entregues** com prefixo "[TESTE — ignorar]": Feed com erro da API (×2), Threads com erro da API após 3 tentativas, Threads sem token. Caminhos de exceção de rede (Feed e Threads), `INSTAGRAM_TOKEN` ausente e falha no Cloudinary validados com o Telegram simulado (mensagens corretas, sem envio). **Sem regressão em produção:** publicação real do cron às 22:45 UTC já com o código novo — Feed `18109006757594086`, Threads `17959360005212955`, Facebook `1387982523494527`, nenhum alerta (como esperado).
+- **Arquivos/serviços afetados:** `publicar_instagram.py`, `/root/msconecta/.env`. `CONTEXTO_MSCONECTA.md` seção 3.5 atualizada.
+- **Motivo:** nenhuma falha de publicação via API deve passar em silêncio. O Facebook ficou 15 dias quebrado sem aviso, e Feed/Threads tinham a mesma lacuna.
+- **Autor:** Claude Code / Saulo.
+
+---
+
 ## 2026-09-24 — Diagnóstico e correção: Facebook Page falhava 100% desde 2026-09-10 com `publish_actions deprecated` (token de System User usado onde a API exige token de Página) + alerta Telegram para toda falha do Facebook
 
 - **Contexto do pedido:** achado colateral da Fase 0 do `ROADMAP_ALTO_VOLUME.md`, tratado por Saulo como urgente: confirmar a extensão, separar causa de TOKEN de causa de CÓDIGO, adicionar alerta e corrigir se fosse de baixo risco.
