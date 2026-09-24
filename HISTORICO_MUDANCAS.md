@@ -9,6 +9,17 @@ Formato de cada entrada:
 
 ---
 
+## 2026-09-24 — `orquestrador.py` passa a registrar o corpo real do erro da API Anthropic (não só `HTTP Error 400: Bad Request`)
+
+- **O que mudou:** em `identificar_intencao()`, quando a chamada a `api.anthropic.com/v1/messages` falha com erro HTTP não recuperável (qualquer código fora do retry de 529/503), o corpo da resposta (`e.read()`, até 500 caracteres) agora é lido e o erro é relançado como `RuntimeError("HTTP Error <código> da API Anthropic: <corpo JSON>")`, com o `HTTPError` original encadeado (`from e`). Se o corpo vier vazio ou não puder ser lido, o `HTTPError` original é relançado como antes. O caller em `main()` não mudou: continua gravando `ERRO identificar: {e}` no log e mandando `Erro ao processar mensagem:` no Telegram, mas agora com o motivo real. O retry de 529/503 segue igual.
+- **Validação:** teste isolado com chave propositalmente inválida (sem custo) mostrou `HTTP Error 401 da API Anthropic: {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_..."}`, tipo `RuntimeError` com causa `HTTPError`. Não precisa reiniciar o serviço: o `telegram_bot.py` (systemd `msconecta-bot`) chama `orquestrador.py` como subprocesso a cada mensagem, então a mudança vale a partir da próxima mensagem. Backup: `/root/msconecta/backups/orquestrador.py.bak_20260924_231929`.
+- **Pendente:** quando Saulo recarregar o saldo da Anthropic, repetir o teste isolado com a chave real e mandar um "programa para as HH:MM" de verdade pelo bot, para confirmar que o fluxo voltou.
+- **Arquivos/serviços afetados:** `orquestrador.py` (`identificar_intencao()`, +8 linhas). `CONTEXTO_MSCONECTA.md` (linha do `orquestrador.py` na tabela de execução).
+- **Motivo:** o log só mostrava `HTTP Error 400: Bad Request`, sem dizer por quê; a API Anthropic devolve o motivo (ex.: saldo insuficiente, modelo ou parâmetro inválido) no corpo JSON, que era descartado.
+- **Autor:** Claude Code / Saulo.
+
+---
+
 ## 2026-09-24 (continuação 2) — `FACEBOOK_SYSTEM_TOKEN` removido também de `/etc/msconecta-bot.env`, `/etc/environment` e `/etc/profile.d/msconecta.sh`
 
 - **O que mudou:** a pedido de Saulo, a linha do token morto (código 190/460) foi apagada de `/etc/msconecta-bot.env` e `/etc/environment`, e também de **`/etc/profile.d/msconecta.sh`**. Esse terceiro arquivo não estava na lista original: é uma cópia do mesmo valor, encontrada ao varrer o host, e é carregada em todo login de shell. Foi incluído porque o objetivo era eliminar o token morto, e o valor é idêntico, conferido por hash. Backups: `/etc/msconecta-bot.env.bak_20260924_225229`, `/etc/environment.bak_20260924_225229`, `/root/msconecta/backups/profile.d_msconecta.sh.bak_20260924_225229` (o backup do profile.d fica fora de `/etc/profile.d`). Permissões preservadas (600/644/755, root).

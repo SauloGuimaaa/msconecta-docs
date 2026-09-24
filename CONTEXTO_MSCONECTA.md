@@ -162,7 +162,7 @@ Outros diretórios relacionados, fora de `/root/msconecta`:
 | `monitor_videos.py` | Cron, `0 14,20 * * *` (14:00 e 20:00 UTC — reativado 2026-08-14 após perda acidental de crontab em 2026-06-15/16, ver `HISTORICO_MUDANCAS.md`) |
 | `health_check_pipeline.py` | Cron, a cada 5 minutos (ativado 2026-08-25 — ver seção 3.9) |
 | `gerar_tudo.py` | Chamado sob demanda (via `gerar_design.sh`, pelo monitor, pelo pipeline ou manualmente) |
-| `orquestrador.py` | Chamado sob demanda pelo `telegram_bot.py` (não roda sozinho) |
+| `orquestrador.py` | Chamado sob demanda pelo `telegram_bot.py` (não roda sozinho). Erro HTTP não recuperável da API Anthropic em `identificar_intencao()` é relançado como `RuntimeError` com o corpo JSON da resposta (até 500 caracteres, inclui `request_id`), então o log `ERRO identificar:` e o aviso no Telegram mostram o motivo real (ex.: saldo insuficiente) em vez de só `HTTP Error 400: Bad Request` — desde 2026-09-24 |
 | `pipeline.py`, `notificar_pautas.py`, `relatorio_diario.py`, `relatorio_semanal.py`, `monitor_saude.py` | Scripts de execução manual/pontual — **agendamento atual não identificado com certeza** (ver seção 6) |
 
 ---
