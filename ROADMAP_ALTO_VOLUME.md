@@ -77,6 +77,147 @@ tipicamente se perdem por dia no comportamento atual de página-1+5-por-ciclo,
 usando dados reais de dias de alto volume.
 **Risco:** nenhum — é só leitura/medição, sem mudança de comportamento.
 
+#### Resultados da Fase 0 (medição feita em 2026-09-24, ~22h UTC)
+
+Nenhum código de produção foi alterado. Fontes: documentação oficial da Meta,
+2 chamadas GET de leitura às APIs (`content_publishing_limit`,
+`threads_publishing_limit`), `instagram.log` + `monitor.log` (15 dias
+retidos, 2026-09-10 a 2026-09-24), `logs/reel.log`, `noticias_vistas.json`,
+`cache_noticiasmetadados.json`, `output/**/meta.json` e os sitemaps de
+notícias do próprio site (`/arquivos/sitemap/news_08_26_*.xml` e
+`news_09_26_*.xml`, 1.499 notícias de 2026-08-01 a 2026-09-24).
+
+**A. Limites da Meta — documentação oficial**
+
+| Plataforma | Limite documentado | Janela | Como consultar | Uso medido agora |
+|---|---|---|---|---|
+| Instagram Feed (Content Publishing API) | 100 posts publicados via API (carrossel conta como 1) | 24h móvel | `GET /{ig-id}/content_publishing_limit` → `config.quota_total=100`, `quota_duration=86400` | **49/100** |
+| Instagram Story | não se aplica — o Story **não usa a API** (automação de navegador no PC Windows, ver `CONTEXTO_MSCONECTA.md` 3.5); nenhuma cota de API documentada para esse caminho | — | — | 48 stories hoje |
+| Threads | 250 posts (+1.000 replies) | 24h móvel | `GET /{threads-id}/threads_publishing_limit` → `quota_total=250` | **58/250** |
+| Facebook Page | sem teto de posts documentado; limite é de **chamadas**: 4800 × usuários engajados / 24h | 24h | header `X-Business-Use-Case-Usage` | irrelevante hoje — ver achado 3 abaixo |
+| Chamadas de API (Instagram/Threads) | 4800 × impressões / 24h; headers `X-App-Usage`/`X-Business-Use-Case-Usage` são **% de uso numa janela móvel de 1h** | 1h (header) | headers de resposta | `X-App-Usage: call_volume 0, cpu_time 0` — longe de qualquer limite |
+
+Cada plataforma tem teto próprio e independente (Feed e Threads têm
+endpoints de cota separados; Story não passa pela API).
+
+Fontes: [Content Publishing](https://developers.facebook.com/docs/instagram-platform/content-publishing),
+[Rate Limiting](https://developers.facebook.com/docs/graph-api/overview/rate-limiting),
+[Threads overview](https://developers.facebook.com/docs/threads/overview),
+[Instagram error codes](https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/error-codes).
+
+**De onde veio o "49/100"**: não é header — é o corpo da resposta de
+`GET /{ig-id}/content_publishing_limit` (`quota_usage` / `quota_total`), janela
+**móvel de 24h** (`quota_duration=86400`). Reconsultado às ~22h30 UTC: continua
+49. Pelos logs, o que saiu nas últimas 24h foi 39 feeds via cron + 2
+republicações manuais + 2 Reels (`publicar_reel.py`) = 43. Os ~6 que faltam
+para chegar em 49 não foram explicados (hipótese não confirmada: tentativas de
+`media_publish` que falharam também contam).
+
+**A. Observação empírica — o "too many actions" NÃO é a cota de 100**
+
+1. **Histórico**: em 15 dias de `instagram.log`, o erro `User is performing
+   too many actions` só aparece em **2026-09-24** (15 vezes). Nenhuma
+   ocorrência de 2026-09-10 a 2026-09-23.
+2. **Não foi só no catch-up**: o erro começou às **01:45 UTC, antes do
+   travamento do lock** (02:01), e voltou às 17:45, 18:15, 18:30, 21:00 e
+   21:15, todas com a cadência normal de 1 feed a cada 15 min. Isso corrige a
+   leitura do incidente do mesmo dia (`HISTORICO_MUDANCAS.md`), que atribuía o
+   erro a uma rajada de recuperação da fila.
+3. **Sempre na etapa `media_publish`**: o container é criado e fica
+   `FINISHED`; a falha é só no publish.
+4. **Limiar observado**: a primeira falha veio quando os feeds publicados nas
+   últimas 24h chegaram a **48**, o maior valor dos 15 dias. O maior valor
+   anterior foi **43** (2026-09-23 23:46), sem nenhum erro. Contando todas as
+   ações da conta no Instagram (feed via API + story e canal via navegador),
+   foram 144 em 24h na primeira falha, contra 129 no máximo anterior, que
+   passou sem erro.
+5. **Não parece haver teto por hora**: antes de hoje houve janelas de 1h com
+   até 16 ações sem erro. Hoje houve falhas com 5–12 ações na hora.
+6. **Interpretação (hipótese, não confirmada)**: a mensagem não é nenhuma
+   das mensagens oficiais de cota (código 9 / subcódigo 2207042 = "maximum
+   number of posts"), e a cota oficial estava em 49/100. O mais provável é um
+   **limite anti-spam/de ação da conta** (família código 4 / subcódigo 2207051,
+   "restrict certain activity"): não documentado numericamente, dinâmico, e
+   possivelmente somando também as ações de navegador (story + canal). **O
+   log só grava a mensagem, não o `code`/`error_subcode`**. Gravar esses
+   campos é pré-requisito para confirmar o diagnóstico (mudança de código,
+   fica para a Fase 1/3).
+
+**Número recomendado (Tarefa A):** **até ~40 feeds por 24h móveis**,
+mantendo o espaçamento mínimo de 15 min já usado (≈ 2–4/h), com Threads sem
+restrição prática (250/24h) e Story limitado pelo mesmo teto do feed (é a
+mesma conta, e as ações somam no anti-spam).
+- Fonte do número: **observação empírica, não documentação**. 43/24h passou
+  limpo, os erros começaram em 48/24h, e 40 dá margem abaixo disso. O teto
+  oficial de 100/24h **não é** o limite que manda na prática hoje.
+- Confiança: **baixa-média**. É só 1 dia com o erro, e limites anti-spam da
+  Meta mudam por conta e por histórico. Recalibrar depois de mais dias de
+  alto volume, e só depois que o log passar a gravar `code`/`subcode`.
+- Consequência para a Fase 3: com 60–70 notícias/dia aprovadas, **não cabe
+  tudo no feed do mesmo dia** com margem segura. O pacer precisa de um teto
+  diário (não só de um intervalo mínimo), e o excedente precisa de uma regra
+  explícita a definir com Saulo (ex.: próximo dia, só Story/Threads,
+  priorização).
+
+**Achados colaterais (não corrigidos, fora do escopo da Fase 0):**
+1. `HISTORICO_MUDANCAS.md` **não tem entrada de 2026-09-22**. As referências
+   deste roadmap ao "incidente de 2026-09-22" (seção 1) e ao "fix de
+   2026-09-22" (Fase 0) não têm registro correspondente no histórico nem no
+   git deste repositório.
+2. `monitor_noticias.py` processa as notícias novas **da mais nova para a mais
+   antiga** (`novas[:5]` na ordem da página). Num pico, as mais antigas do
+   backlog ficam sempre para depois e acabam saindo da página 1. É o
+   mecanismo real das perdas medidas na Tarefa B abaixo.
+3. **Facebook Page não publica nada há pelo menos 15 dias**: 100% das
+   tentativas em `instagram.log` (todas desde 2026-09-10) retornam
+   `(#200) The permission(s) publish_actions are not available. It has been
+   deprecated`. Falha silenciosa: o fluxo segue normalmente. Precisa de
+   investigação própria (token/permissão da Page).
+
+**B. Perda real do `monitor_noticias.py`**
+
+Método: cada notícia dos sitemaps do site (data/hora = `lastmod`, horário de
+Brasília) foi cruzada com tudo que o monitor tocou (`noticias_vistas.json`,
+`cache_noticiasmetadados.json`, `meta.json` das pastas de output, títulos em
+`monitor.log`), por slug e por título. Uma notícia "nunca tocada" = perdida.
+Casos conferidos manualmente em 2026-09-24: 1 falso positivo (título e slug
+editados depois do processamento) e 4 publicadas depois do último ciclo
+(pendentes, não perdidas) foram descontados.
+
+| Faixa de volume diário | Dias | Notícias | Perdidas | % | Perdidas/dia |
+|---|---|---|---|---|---|
+| < 30/dia | 26 | 378 | 6 | 1,6% | 0,23 |
+| 30–44/dia | 19 | 697 | 12 | 1,7% | 0,63 |
+| 45+/dia | 8 | 424 | 10 | 2,4% | 1,25 |
+| **Total (2026-08-01 a 09-24)** | 53 | 1.499 | **28** | 1,9% | 0,53 |
+
+Dias de alto volume: 08-13 (52): 0 · 08-19 (45): 2 · 09-02 (46): 0 · 09-03
+(52): 0 · 09-04 (46): 2 · 09-10 (56): 1 · 09-23 (57): 0 · **09-24 (70): 5**.
+
+- **Escala com o volume, mas não de forma linear**: o preditor forte é o
+  **pico concentrado**, não o total do dia. Nos 22 dias em que o máximo de
+  publicações numa janela de 90 min ficou em ≤ 12, houve 1 perda. Nos 31 dias
+  com picos de 13+ em 90 min, houve 27. Um dia de 57 notícias bem distribuídas
+  (09-23) teve 0 perdas; um dia de 25 com um pico (08-24) teve 2.
+- **Mecanismo confirmado no log de 09-24**: às 17:30 UTC havia 10 novas
+  (processou 5, as mais novas), às 18:00 havia 15 (processou 5), às 18:30
+  havia 10. As 5 notícias publicadas entre 14:00 e 14:13 BRT (17:00–17:13 UTC)
+  foram passadas para trás a cada ciclo e saíram da página 1. Mesmo padrão em
+  09-10 (12:30–13:30 UTC, backlog de 9 → 12 → 10). Falhas de scrape (PC
+  offline + proxies bloqueados) aumentam o backlog e agravam o efeito.
+- **As perdas são silenciosas**: nenhuma das 28 gerou alerta. Elas vêm em
+  lotes de 2–3 notícias publicadas com poucos minutos de diferença.
+- Ressalva de método: `lastmod` é a data de **modificação**, não
+  necessariamente a de publicação. Notícias editadas depois podem cair no dia
+  errado; isso não afeta a detecção de perda, só a distribuição por dia.
+
+**Implicações para o desenho da Fase 1**: processar do mais antigo para o
+mais novo (ou garantir que o backlog nunca exceda a janela lida), paginar pelo
+menos a página 2 (`/noticias/page-2` existe) ou usar o sitemap de notícias
+do mês como fonte de descoberta (tem `lastmod`, não fica restrito às 20
+últimas), e alertar sempre que uma notícia sair da janela sem ter sido
+processada.
+
 ### Fase 1 — Corrigir o gargalo estrutural de descoberta
 **Entrega:** `monitor_noticias.py` passa a paginar além da página 1 e a
 processar todo o volume descoberto por ciclo (não mais travado em 5) — com
