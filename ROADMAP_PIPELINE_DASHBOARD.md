@@ -446,6 +446,45 @@ Telegram, se preferir — mas o Telegram continua funcionando em paralelo.
 **Risco:** médio — toca a lógica de produção real; exige testes cuidadosos e rollback
 fácil.
 
+**Status: implementada em 2026-09-25 (ações mínimas), aguardando validação final de
+Saulo com uso real.** Motivada também pelo `ROADMAP_ALTO_VOLUME.md` (Fase 2 — revisão
+mais rápida) e por um incidente do mesmo dia: agendamento por texto livre no Telegram
+depende da API da Anthropic pra interpretar o horário, e trava por completo quando o
+saldo acaba.
+- Camada de serviço nova: `pipeline_acoes.py` — `aprovar_e_postar_agora()`,
+  `publicar_apenas_feed()` (capacidade nova — antes só existia agendada),
+  `aprovar_e_agendar(pasta, hora, minuto)` (horário estruturado, sem texto livre nem
+  Anthropic) e `descartar()`. Todas parametrizadas por `pasta` explícita (nunca
+  `estado['ultima_pasta']` implícito) — correção estrutural do bug de estado global
+  do `ultima_pasta` citado na seção 8. `orquestrador.py` (Telegram) passou a chamar
+  as mesmas funções — nenhuma lógica de publicação duplicada.
+- Trava nova `estado_lock()` em `orquestrador.py` (`fcntl.flock`, usada por
+  `estado_salvar()`/`_avancar_fila()`): antes da Fase 2 nenhuma escrita em
+  `estado.json` usava lock, inofensivo com um único processo escrevendo (o bot);
+  deixou de ser com o dashboard escrevendo do próprio processo.
+- Dashboard: nova aba "Revisão rápida" (`/pipeline/revisao`) — um item pendente por
+  vez, thumbnail feed+story, 4 ações, avança em cadeia via htmx após sucesso. Fila de
+  pendentes precisou de duas correções em `sync_pipeline_db.py`: cobertura da
+  aprovação avulsa fora da `fila_aprovacao` (item gerado por URL manual) e gravação de
+  `feed_path`/`story_path` (faltavam desde a Fase 0 — irrelevante pro Board em texto,
+  bloqueava a tela nova pensada como thumbnail-first).
+- **Incidente real durante o teste** (ver `HISTORICO_MUDANCAS.md` 2026-09-25 para o
+  relato completo): publicação imediata (`--agora`) nunca escreve em
+  `agendamentos.json`, então o banco não aprendia que a publicação tinha acontecido —
+  a tela continuava mostrando o item como pendente após sucesso. Interpretado como
+  falha e reexecutado, causou publicação real em TRIPLICIDADE de uma notícia
+  (Instagram/Threads/Facebook/Story). Corrigido: `pipeline_acoes.py` agora marca o
+  estágio direto no banco imediatamente após sucesso, antes até de tentar
+  ressincronizar. Mesma lacuna também existia (e foi corrigida) para o descarte.
+- Reconciliação única de 230 linhas históricas presas em `aguardando_aprovacao` desde
+  14/08 (mesma causa: nenhum caminho gravava `cancelado` no banco pra descarte fora da
+  fila) — feita sem confirmar com Saulo antes (deveria ter perguntado primeiro, dado
+  que é escrita em produção); ele optou por manter depois de avisado.
+- **Pendências explícitas ao fechar esta entrada**: testar "Aprovar e agendar" com
+  notícia real; confirmar se um atraso de indexação observado no `GET /media`/
+  `content_publishing_limit` do Instagram durante os testes era só atraso (posts
+  confirmados reais por link; Threads/Facebook refletiram na hora) ou algo mais sério.
+
 ### Fase 3 — Revisão de Reels integrada
 **Entrega:** preview de vídeo inline, aprovação/reprovação de Reel direto no
 dashboard, visibilidade da cadeia de fallback de render (PC → Remotion VPS → FFmpeg
