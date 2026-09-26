@@ -322,6 +322,32 @@ Auto-slot e gate leem as mesmas constantes (`INTERVALO_MIN_PUBLICACAO_MINUTOS`,
 `INTERVALO_JITTER_MAX_MINUTOS`); as variáveis `INTERVALO_*_APROVACAO_MINUTOS`
 foram aposentadas.
 
+### Nota 2026-09-26 (4) — Mudança de direção: auto-slot simplificado (intervalo fixo)
+
+**Decisão de Saulo (definitiva):** abandonar a complexidade do teto móvel de 24h
+e do FIFO no cálculo **ativo** do horário. O cálculo passa a ser apenas:
+
+`PRÓXIMO_SLOT = MAX(último_horário_já_agendado, agora) + 27min`
+
+(27min = meio do intervalo 25-30min validado contra a Meta; ver Nota 3). Sem
+teto de 24h como bloqueio, sem FIFO reordenando, sem recalcular por itens
+antigos ou fantasmas. Implementação: `slot_simples.py` (dry-run feito em
+26/09; **aplicação pendente de confirmação**).
+
+**Motivo:** a complexidade acumulada gerou mais bugs do que valor no mesmo dia:
+contaminação do teto por "publicados" fantasmas (fila empurrada em 3-5h),
+saltos de horário, FIFO permutando horários entre aprovações (itens novos
+recebendo os mesmos slots de itens já aprovados; salto de 1h52 entre 14:35 e
+16:27 CG) e confusão de ordem. Como o gate de 25-30min já limita fisicamente
+a ~33/dia (~52/24h), o teto de 60 era redundante.
+
+**Mantido, separado do cálculo:** alerta de 24h desde a geração (só avisa,
+nunca descarta nem bloqueia). O teto móvel pode continuar como **métrica** de
+monitoramento, sem influenciar o horário.
+
+**Ponto em aberto:** sem a janela 7h-22h CG a fila atrasada cai na madrugada;
+decidir se a janela fica ou não.
+
 ## 7. Como usar este documento
 
 Cada sessão que for trabalhar numa fase deve ler este documento inteiro
