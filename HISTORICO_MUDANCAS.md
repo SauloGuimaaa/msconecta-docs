@@ -9,6 +9,17 @@ Formato de cada entrada:
 
 ---
 
+## 2026-09-26 — Flag `AUTO_SLOT_REGRAS_V2` ligada e DESLIGADA de novo no 1º ciclo: comportamento real divergiu da simulação (itens de reposição)
+
+- **O que aconteceu:** com autorização de Saulo, `AUTO_SLOT_REGRAS_V2=true` foi adicionada ao `.env` do MSConecta (~07:59 UTC). No 1º ciclo do cron (08:00 UTC) nada foi publicado nem alertado: 9 itens **de reposição** já vencidos (22:50–02:10 CG) foram barrados pelo teto móvel com a mensagem "Teto diario atingido — reposicao … aguardando", repetida por item a cada minuto, sem novo horário e **sem nenhum alerta de 24h**. Em ~1min, ao ver a divergência, a flag foi removida (`.env` restaurado de `.env.bak_20260926_regras_v2`, `grep AUTO_SLOT .env` = 0) e o ciclo seguinte já rodou no comportamento antigo. Nenhum item foi publicado, alterado ou perdido durante o episódio (`agendamentos.json` sem mudanças: 25 pendentes, 0 com `alerta_24h_enviado_em`).
+- **Causa raiz:** `processar_agendamentos()` trata itens com `reposicao=True` num ramo à parte do teto ("sem empurrar para amanha 9h, tenta de novo no proximo ciclo" — `continue` sem gravar novo horário), porque reposição ignora a janela 9h-20h. A simulação (dry-run) assumiu que todos os pendentes seriam empurrados para o horário em que a janela de 24h libera; o código real só faz isso para itens não-reposição. Consequências: (a) itens de reposição ficam presos sem horário novo, (b) log ruidoso a cada minuto, (c) o alerta de 24h nunca dispara para eles porque o `horario` armazenado não muda. Dos 25 pendentes, 10 são reposição.
+- **Decisão de Saulo:** manter a flag desligada, corrigir (reposição barrada pelo teto recebe novo horário = quando a janela libera, sem log por minuto, e entra no alerta de 24h), **re-simular contra a fila real antes de religar**. `publicar_instagram.py` NÃO deve ser commitado inteiro (contém >1000 linhas não commitadas de outras sessões); só `auto_slot_regras.py` e `test_auto_slot_regras.py` (commit `740aa02` no repo do MSConecta). Limpeza da acumulação de mudanças pendentes fica como tarefa separada, não urgente.
+- **Lição:** a simulação precisa exercitar o caminho REAL do cron (inclusive ramos especiais como reposição), não só a função de cálculo de slot; simulação de ciclo de cron em cópia da fila passa a ser obrigatória antes de ligar.
+- **Arquivos/serviços afetados:** `.env` (flag adicionada e removida, sem efeito residual), docs.
+- **Autor:** Claude Code
+
+---
+
 ## 2026-09-26 — Idempotência por canal em retries (story/Threads/Facebook não são mais republicados) + duplicatas do santa-emilia removidas + dourados-homenageia na fila de reposição + diagnóstico da fila de reposição travada
 
 - **Contexto:** investigação de "notícias só com Story, sem Feed" na madrugada de 26/09 mostrou que **não** era o bug de mascaramento de `publicar_feed_e_story()` (já corrigido em 25/09 e 26/09; o `REVISAO_FASE2_20260925.txt` que ainda o cita como pendente é um retrato antigo), e sim o rate limit do Instagram (code 9/2207042, sem relação com o saldo da Anthropic — `publicar_instagram.py` não usa Anthropic). O efeito colateral novo: como o retry por rate limit reexecuta `publicar_feed_e_story()` inteira, **Story, Threads e Facebook eram republicados a cada tentativa** (santa-emilia-e-aquarius: 3 cópias extras de cada, em 06:57, 07:25 e 07:51 UTC).
