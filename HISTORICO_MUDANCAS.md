@@ -9,6 +9,16 @@ Formato de cada entrada:
 
 ---
 
+## 2026-09-26 — Flag `AUTO_SLOT_REGRAS_V2=true` LIGADA em produção (autorizado por Saulo) — 1º ciclo real conferido
+
+- **O que mudou:** linha `AUTO_SLOT_REGRAS_V2=true` adicionada ao `/root/msconecta/.env` às ~08:09 UTC (backup: `.env.bak_20260926_regras_v2b`; desligar = remover a linha, vale no ciclo seguinte do cron). O `.env` é lido por `publicar_instagram.py` (cron e subprocessos do dashboard/bot), sem necessidade de reiniciar serviços.
+- **1º ciclo real (08:09 UTC):** reconciliação empurrou **13** pendentes (ex.: 08:12→12:55, 09:00→14:10, 11:05→17:55 CG; fila termina 26/09 17:55 CG) e enviou **1** resumo de alerta 24h cobrindo **14** itens (`alerta_24h_enviado_em` gravado em todos com a mesma marca, só após o Telegram aceitar). Ciclos seguintes (08:10, 08:11): sem novos reagendamentos, sem novo alerta, sem mensagens por minuto, sem texto "teto diário". O conteúdo da mensagem no Telegram não pôde ser lido daqui — depende de Saulo confirmar o recebimento.
+- **Diferença em relação à simulação (explicada):** o número de empurrados (13 vs ~20) e de alertas (14) diferem porque, entre a simulação e o ligar, os itens de **reposição** já tinham sido pausados deliberadamente por Saulo (`erro_detalhe`: "fila de reposicao suspensa ate 12:00 UTC", horários 10:30 CG em diante, de 30 em 30 min) — esses não foram tocados pelo teto; 9-10 dos 14 alertados são justamente esses (reposição gerada há >24h), os demais são empurrados pelo teto.
+- **Acompanhar:** rate limit code 9 com teto 60 (avisar Saulo com dados antes de baixar); backlog de 25 aguardando aprovação ainda não foi aprovado — quando for, o auto-slot aplica teto móvel + FIFO.
+- **Autor:** Claude Code
+
+---
+
 ## 2026-09-26 — Correção das regras V2 do auto-slot após o 1º ciclo (flag CONTINUA DESLIGADA): reconciliação do teto móvel em todos os pendentes, reposição reagendada, alerta 24h em resumo único
 
 - **O que mudou (`publicar_instagram.py`, só em disco — arquivo tem >1000 linhas não commitadas de outras sessões, deliberadamente NÃO commitado; `auto_slot_regras.py`/testes commitados no repo do MSConecta):**

@@ -261,7 +261,7 @@ gradual já usado nos incidentes desta semana.
 
 O auto-slot é preenchimento contínuo (janela 7h-22h CG, 15-20min com jitter).
 As 3 lacunas apontadas antes foram implementadas em `auto_slot_regras.py`,
-**desligadas** até Saulo decidir (`AUTO_SLOT_REGRAS_V2=true`):
+**ligadas em produção desde 2026-09-26** (`AUTO_SLOT_REGRAS_V2=true` no `.env`; remover a linha desliga):
 1. **Teto móvel de 60/24h** (Saulo escolheu 60, não os ~40 da Tarefa A acima).
    Ao ligar, ~20 dos 25 pendentes de 26/09 são empurrados (não descartados).
    Se o rate limit code 9 reaparecer, reavaliar para baixo **com dados**.
