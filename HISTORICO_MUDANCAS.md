@@ -9,6 +9,17 @@ Formato de cada entrada:
 
 ---
 
+## 2026-09-26 — Varredura completa de gaps/riscos para handoff: `PLANO_VARREDURA_20260926.md` (somente plano, NADA aplicado)
+
+- **O que mudou:** apenas documentação. Novo `PLANO_VARREDURA_20260926.md` com 22 achados (6 críticos, 12 importantes, 4 desejáveis) ordenados por prioridade, com evidência, correção proposta, lotes de aplicação (L0-L8) e 10 decisões pendentes de Saulo. Nenhum código, dado, cron, env ou serviço foi alterado; banco lido só em `mode=ro`; segredos verificados só por nome.
+- **Principais achados:** (1) `pipeline_acoes.descartar()` não cancela a entrada pendente em `agendamentos.json` — **4 notícias descartadas no dashboard em 25/09 foram publicadas pelo cron** (Itaporã, Impressão 3D, ALEMS idadismo, Senai Corumbá); é também a causa raiz do "sync remarcando cancelados como agendado", somada a eventos de sync gravados com timestamp = horário agendado (futuro). (2) "pular design"/"proximo"/"skip"/botão "Cancelar" = descarte permanente sem confirmação, agindo sobre `ultima_pasta` e não sobre a mensagem clicada. (3) `openclaw` não existe no servidor — alerta de STORY falho é silencioso. (4) `estado.json` gravado sem trava por `monitor_noticias.py` e 13 pontos do bot. (5) Agendamento: das ~13 camadas, gate + rate limit + idempotência + status confirmado + cota bastam; teto móvel, conferência de fantasmas, FIFO por permuta, horário preservado e ramo de reposição podem sair.
+- **Divergência registrada (não corrigida):** o banco mostra que a restauração dos itens 1-5 (entrada abaixo) foi **desfeita às 15:20:25 UTC** ("a pedido de Saulo") — os 5 estão `cancelado` e sem entrada em `agendamentos.json`; a entrada abaixo ainda os descreve como pendentes.
+- **Arquivos/serviços afetados:** `PLANO_VARREDURA_20260926.md` (novo), `HISTORICO_MUDANCAS.md`.
+- **Motivo:** preparar a operação para handoff com foco em simplicidade e segurança; aplicação só após revisão de Saulo, lote por lote.
+- **Autor:** Claude Code (a pedido de Saulo)
+
+---
+
 ## 2026-09-26 — Restauração parcial (itens 1-5) dos descartados por "pular design" + auto-slot simplificado (dry-run, NÃO aplicado)
 
 - **Investigação (itens "perdidos"):** dos 19 itens do reset FIFO das 09:23 UTC, 10 não sumiram por bug — foram **descartados** (`pipeline_acoes.descartar`, `cancelado` no banco) por 10 mensagens "pular design" entre 09:23:34 e 09:25:09 UTC (`orquestrador.py`: "pular" descarta o item da cabeça da fila, sem confirmação). Nenhum saiu no feed do Instagram (conferido na Graph API por legenda, últimos 500 posts); pastas intactas. Itens 1-6 já tinham Story/Threads/Facebook publicados de madrugada (feed barrado por rate limit); 10-13 nunca foram processados. Item 18 (173 mi) segue `erro` em `agendamentos.json` (falso "publicado" de 25/09). Os 8 restantes foram reaprovados e estão `pendente`. Correção de uma leitura anterior: os eventos `sync` com horários 11:27/12:56/13:00/18:10 no `pipeline_events` são **anteriores** ao reset (ordem por `id`), não ressurreição.
