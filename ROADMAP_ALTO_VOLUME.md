@@ -13,6 +13,31 @@
 
 ---
 
+> ## ⚠️ CAPACIDADE REAL DO SISTEMA (descoberta de 2026-09-26) — LER PRIMEIRO
+>
+> **O gargalo de volume é o gate de publicação de 25-30 min, NÃO o teto de 60/24h.**
+> `espacamento_liberado()` (`publicar_instagram.py`; `INTERVALO_MIN_PUBLICACAO_MINUTOS`=25
+> + `INTERVALO_JITTER_MAX_MINUTOS`=5) libera no máximo uma tentativa de publicação
+> a cada 25-30 min (média ~27,5). Isso impõe um **limite físico**:
+>
+> | Janela | Capacidade máxima |
+> |---|---|
+> | Janela do auto-slot (07h-22h CG, 15h) | **~33 posts/dia** |
+> | 24h corridas (cron roda o dia todo) | **~52 posts/24h** (1440 ÷ 27,5) |
+>
+> O teto móvel `TETO_MOVEL_FEEDS_24H=60` **nunca é o limite efetivo**: o gate
+> satura antes. Qualquer plano que precise de >33/dia dentro da janela 7h-22h
+> (ou >52/24h) exige mudar o gate ou a janela — o auto-slot sozinho não resolve.
+> O gate foi elevado de 10 para 25-30 min depois de 16 rate limits reais da Graph
+> API (2026-09-25); baixá-lo é risco medido, não otimização gratuita.
+>
+> **Auto-slot e gate agora usam a MESMA constante** (fonte única, 2026-09-26):
+> antes o auto-slot marcava slots de 15-20 min e o gate segurava a publicação em
+> 25-30 min, então o horário mostrado prometia algo que não se cumpria (fila
+> acumulava atraso, ~2h no fim do dia). Agora o horário mostrado = mais cedo
+> possível real. Ver `HISTORICO_MUDANCAS.md` (2026-09-26, espaçamento unificado).
+
+
 ## 1. Motivação
 
 O `monitor_noticias.py` foi desenhado para um volume bem menor do que o
@@ -284,6 +309,18 @@ a contagem local com `quota_usage`/mídias da API real (só age no excesso,
 fail-safe se a API cair) e alerta 1x/dia se divergir ≥3. Pendência de fundo
 (Fase 1/3): gravar `code`/`subcode` do erro e nunca marcar `publicado`
 sem confirmação do feed.
+
+### Nota 2026-09-26 (3) — O gate de 25-30 min é o teto real de volume
+
+Ver o quadro no topo deste documento. Consequência para as fases: qualquer
+meta de volume deve ser comparada com ~33/dia (janela 7h-22h CG) ou ~52/24h,
+não com o teto de 60. Fase 3 (distribuição no dia) e qualquer discussão de
+"aumentar o teto" são inócuas enquanto o gate não mudar. Decisão pendente de
+Saulo, se o volume orgânico exigir mais: estender a janela do auto-slot
+(ex.: 6h-23h CG → ~36/dia) e/ou reduzir o gate com medição de rate limit.
+Auto-slot e gate leem as mesmas constantes (`INTERVALO_MIN_PUBLICACAO_MINUTOS`,
+`INTERVALO_JITTER_MAX_MINUTOS`); as variáveis `INTERVALO_*_APROVACAO_MINUTOS`
+foram aposentadas.
 
 ## 7. Como usar este documento
 

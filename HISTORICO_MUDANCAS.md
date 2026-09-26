@@ -9,6 +9,19 @@ Formato de cada entrada:
 
 ---
 
+## 2026-09-26 — Espaçamento do auto-slot unificado com o gate de publicação (25-30 min) e 18 pendentes reagendados
+
+- **Problema:** o auto-slot marcava slots a cada 15-20 min (`INTERVALO_MIN_APROVACAO_MINUTOS`), mas a publicação real passa pelo gate `espacamento_liberado()` (25-30 min entre tentativas; item atrasado continua `pendente` e o cron de 1 min tenta de novo). Com slots mais densos que o gate a fila acumula atraso: estimativa de ~2h no fim do dia (28 itens ≈ 770 min de gate vs slots até 17:30 CG) — o horário mostrado prometia algo que não se cumpria. **Não foi medido em produção se, com vários itens atrasados, a ordem de saída segue a ordem dos slots.**
+- **O que mudou:** `publicar_instagram.py` linhas ~525-526: `INTERVALO_MIN_SEGUNDOS_APROVACAO = INTERVALO_MIN_SEGUNDOS` e `INTERVALO_JITTER_MAX_SEGUNDOS_APROVACAO = INTERVALO_JITTER_MAX_SEGUNDOS` (fonte única: `INTERVALO_MIN_PUBLICACAO_MINUTOS`=25 e `INTERVALO_JITTER_MAX_MINUTOS`=5, defaults, nenhuma env definida). As envs `INTERVALO_MIN_APROVACAO_MINUTOS`/`INTERVALO_JITTER_MAX_APROVACAO_MINUTOS` não são mais lidas (nenhum uso em `.env`/scripts). Backup: `publicar_instagram.py.bak_20260926_intervalo_unificado`.
+- **Reagendamento (aprovado por Saulo após dry-run):** 18 pendentes movíveis de 26/09 refeitos do zero, FIFO por geração, começando 07:00 CG (início da janela; agora eram ~04:45 CG), espaçamento mínimo 25:00 (horários redondos, sem segundos, para encaixar entre reposições a 50 min), 07:00 → 19:15 CG, teto 60 mantido (pico 24h pós-plano: 59). Gravado sob `_lock_agendamentos_io()`, `erro_detalhe` = "Reposicionado em 2026-09-26 com espacamento unificado 25-30min…". Backup: `agendamentos.json.bak_20260926_intervalo_unificado`. **Não tocados:** 10 itens de reposição (pausa deliberada de Saulo), item cancelado (duplicata de Corumbá vagas em curso) e o `agendado` antigo de 10/05. Verificado: exatamente 18 entradas diferentes do backup, nenhuma de reposição, gaps 25-40 min.
+- **Esclarecimento sobre "46":** 46 é a contagem real de publicados/24h pós-limpeza dos fantasmas, não um limite. Teto continua 60 (`TETO_MOVEL_FEEDS_24H`, default; V2 ligada).
+- **Descoberta de capacidade:** o gate impõe ~33 posts/dia na janela 7h-22h e ~52/24h; o teto de 60 nunca é o gargalo. Destaque no topo de `ROADMAP_ALTO_VOLUME.md`.
+- **Commit:** `publicar_instagram.py` **não commitado** (decisão de Saulo): as linhas alteradas e todo o auto-slot só existem nas ~1200 linhas não commitadas de outras sessões, então um commit isolado da mudança é inviável. Só a documentação foi commitada.
+- **Arquivos afetados:** `publicar_instagram.py`, `agendamentos.json`, docs.
+- **Autor:** Claude Code
+
+---
+
 ## 2026-09-26 — Limpeza final dos fantasmas de "publicado": 11 confirmados na janela (+4 antigos), duplicata de Corumbá cancelada, pareamento da conferência com a API passa a ser por LEGENDA
 
 - **Contexto:** um alerta "10 possíveis fantasmas" chegou ao Telegram de Saulo. Verificação item a item na API real (GET `/{ig-user-id}/media`, por legenda + ID) mostrou que (a) o alerta foi gerado por um **teste meu** (rodei `_publicados_nao_confirmados()` contra o backup pré-correção com a flag ligada e o Telegram real; marcador `conferencia_teto_api` gravado 08:30:12Z, sem linha correspondente no log do cron), (b) o pareamento por HORÁRIO usado na conferência era falho: um fantasma "roubava" a mídia de um item real publicado no mesmo minuto (Suzano 19:30:02Z × Três Lagoas 19:31:50Z), escondendo outros fantasmas e acusando um item real.
