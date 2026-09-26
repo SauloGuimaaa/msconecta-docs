@@ -345,6 +345,8 @@ a ~33/dia (~52/24h), o teto de 60 era redundante.
 nunca descarta nem bloqueia). O teto móvel pode continuar como **métrica** de
 monitoramento, sem influenciar o horário.
 
+**Status:** LIGADO em 2026-09-26 (`AUTO_SLOT_SIMPLES=true`), sem janela, por decisão de Saulo; ver `HISTORICO_MUDANCAS.md`.
+
 **Ponto em aberto:** sem a janela 7h-22h CG a fila atrasada cai na madrugada;
 decidir se a janela fica ou não.
 
