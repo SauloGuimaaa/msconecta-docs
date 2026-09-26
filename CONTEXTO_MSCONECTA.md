@@ -496,3 +496,8 @@ Dezenas de arquivos `.bak`, `.bak_YYYYMMDD_HHMMSS` de scripts centrais (`gerar_t
 - Logs de aplicação em `logs/` (`telegram_bot.log`, `pipeline.log`, `pautas.log`, `relatorio.log`, `reel.log`, entre outros) e na raiz (`instagram.log`, `monitor.log`), rotacionados via `logrotate` (`/etc/logrotate.d/msconecta` — diário, mantém 14 dias, compressão).
 - `dashboard.py` oferece um painel web em tempo real com status dos serviços/integrações (porta 8085, autenticado por token em `.dashboard_token` para o endpoint de ações).
 - `monitor_saude.py` implementa alerta de mudança de estado (OK↔falha) dos serviços via Telegram, mas seu agendamento atual não foi confirmado (ver acima).
+
+
+## Auto-slot de aprovação (estado em 2026-09-26)
+
+"Aprovado pode postar" → `pipeline_acoes.aprovar()` → `publicar_instagram.py --auto` → `calcular_slot_auto_aprovacao()`. Preenchimento contínuo: janela 7h-22h CG, intervalo 15-20min com jitter, próximo slot livre em relação a todos os pendentes; adia (nunca descarta) se cota real da Graph API ou teto diário (`TETO_DIARIO_POSTS`, default 60/dia de calendário) estourar. A publicação real ainda passa pelo gate global `espacamento_liberado()` (25-30min). Não implementados: FIFO, descarte >24h, teto de 40/24h móveis (ver ROADMAP_ALTO_VOLUME.md).

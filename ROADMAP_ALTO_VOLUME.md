@@ -257,6 +257,19 @@ gradual já usado nos incidentes desta semana.
   claro com mais dias de observação; este roadmap prepara o sistema para
   essa possibilidade sem assumi-la como fato.
 
+### Nota 2026-09-26 — Auto-slot não usa slots fixos; lacunas em teto/FIFO/24h
+
+Diagnóstico do auto-slot de aprovação (detalhes em `HISTORICO_MUDANCAS.md`,
+2026-09-26): é preenchimento contínuo (janela 7h-22h CG, 15-20min com
+jitter), e os "saltos" vistos vinham de horários já ocupados na fila. Para as
+Fases seguintes ficam **3 lacunas abertas** (nada disso está no auto-slot hoje):
+1. **Teto diário**: código usa 60 por dia de calendário CG; a recomendação
+   deste roadmap é ~40 por 24h **móveis**. Decidir com Saulo antes de baixar
+   (risco de adiar itens legítimos).
+2. **FIFO** (mais antiga primeiro): não garantido no auto-slot (agenda na
+   ordem de aprovação).
+3. **Descarte de itens > 24h**: não implementado.
+
 ## 7. Como usar este documento
 
 Cada sessão que for trabalhar numa fase deve ler este documento inteiro
