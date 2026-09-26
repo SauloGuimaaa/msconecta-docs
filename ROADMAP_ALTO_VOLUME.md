@@ -257,18 +257,23 @@ gradual já usado nos incidentes desta semana.
   claro com mais dias de observação; este roadmap prepara o sistema para
   essa possibilidade sem assumi-la como fato.
 
-### Nota 2026-09-26 — Auto-slot não usa slots fixos; lacunas em teto/FIFO/24h
+### Nota 2026-09-26 — Auto-slot: regras V2 implementadas (flag desligada)
 
-Diagnóstico do auto-slot de aprovação (detalhes em `HISTORICO_MUDANCAS.md`,
-2026-09-26): é preenchimento contínuo (janela 7h-22h CG, 15-20min com
-jitter), e os "saltos" vistos vinham de horários já ocupados na fila. Para as
-Fases seguintes ficam **3 lacunas abertas** (nada disso está no auto-slot hoje):
-1. **Teto diário**: código usa 60 por dia de calendário CG; a recomendação
-   deste roadmap é ~40 por 24h **móveis**. Decidir com Saulo antes de baixar
-   (risco de adiar itens legítimos).
-2. **FIFO** (mais antiga primeiro): não garantido no auto-slot (agenda na
-   ordem de aprovação).
-3. **Descarte de itens > 24h**: não implementado.
+O auto-slot é preenchimento contínuo (janela 7h-22h CG, 15-20min com jitter).
+As 3 lacunas apontadas antes foram implementadas em `auto_slot_regras.py`,
+**desligadas** até Saulo decidir (`AUTO_SLOT_REGRAS_V2=true`):
+1. **Teto móvel de 60/24h** (Saulo escolheu 60, não os ~40 da Tarefa A acima).
+   Ao ligar, ~20 dos 25 pendentes de 26/09 são empurrados (não descartados).
+   Se o rate limit code 9 reaparecer, reavaliar para baixo **com dados**.
+2. **FIFO por horário de geração** (`content_items.criado_em`): permuta os
+   horários do auto-slot (itens marcados `origem_slot=auto_slot`).
+3. **Alerta de itens >24h desde a geração** (no horário planejado): resumo
+   único por ciclo no Telegram, `alerta_24h_enviado_em` evita repetição,
+   **nunca descarta** (aprovação manual é intocável — seção 2).
+
+Observação de capacidade: com ~76 itens numa janela de 24h, mesmo o teto 60
+adia a fila para 27/09 ~07:38; a causa é volume acima do teto, não o
+algoritmo de slots.
 
 ## 7. Como usar este documento
 

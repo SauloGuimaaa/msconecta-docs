@@ -9,6 +9,23 @@ Formato de cada entrada:
 
 ---
 
+## 2026-09-26 — Regras V2 do auto-slot implementadas e conectadas ao fluxo real, com flag DESLIGADA (`AUTO_SLOT_REGRAS_V2`): teto móvel 60/24h, FIFO por geração, alerta (nunca descarte) de itens >24h
+
+- **O que mudou:**
+  - **Novo `auto_slot_regras.py`** (funções puras + dry-run `python3 auto_slot_regras.py --dry-run`, que só lê e não grava). Flag `AUTO_SLOT_REGRAS_V2` (default `false`); com ela desligada o comportamento é exatamente o anterior (testes antigos passam).
+  - **Teto móvel** (`TETO_MOVEL_FEEDS_24H`, default **60**, decisão de Saulo — não 40): nenhuma janela de 24h pode passar de 60 itens (publicados pelo `publicado_em` real + pendentes pelo `horario`). Aplicado em `calcular_slot_auto_aprovacao()` (empurra até o item mais antigo da janela sair e reconfere colisão) e no gate de `processar_agendamentos()` (substitui o teto por dia de calendário quando ligada).
+  - **FIFO:** `agendar_auto()` passa a gravar `origem_slot: "auto_slot"` (sempre, mesmo com flag desligada) e, com a flag ligada, permuta os horários já calculados dos itens marcados para que o horário mais cedo vá ao item **gerado há mais tempo** (`content_items.criado_em`, UTC; fallback mtime de `feed.png`). Não cria/remove slots. Não toca itens sem marcador (os 25 já agendados hoje), nem horários a <10min.
+  - **Alerta 24h, nunca descarte:** a cada ciclo do cron, itens pendentes cujo **horário planejado** cai >24h após a geração geram **uma única mensagem-resumo** no Telegram (`processar_agendamentos()`); grava `alerta_24h_enviado_em` no item só se o Telegram aceitou, para nunca repetir. Geração desconhecida nunca alerta. Nada é cancelado (aprovação segue manual).
+- **Dry-run com dados reais de 26/09 (teto 60):** dos 25 já agendados, 20 seriam empurrados (10:18–15:00 CG, nenhum vira outro dia) e 6 gerariam alerta (+8 entre 20-24h); dos 25 aguardando aprovação (aprovados agora em FIFO), todos seriam agendados, 7 com alerta (3 deles, a 27/09 07:00–07:38, com ~33h), fila terminaria 27/09 07:38 CG. Para comparar, com teto 40 seriam 25 empurrados e 34 descartes — quase tudo causado pelo teto, pois sem ele: 0 empurrados, 0 alertas.
+- **Testes:** `test_auto_slot_regras.py` (9 casos: teto móvel, janela futura, flag desligada = antigo, FIFO só em marcados/não iminentes, alerta único/sem descarte) + suites existentes (`test_auto_slot_aprovacao`, `test_publicar_instagram_status`, `test_rate_limit_backoff`, `test_pipeline_acoes_status`) OK; `processar_agendamentos()` rodado em arquivo temporário com Telegram mockado: 1 alerta em 2 execuções, itens continuam `pendente`.
+- **Estado da flag:** DESLIGADA em produção. Ligar = `AUTO_SLOT_REGRAS_V2=true` no ambiente do cron/serviços, só após decisão de Saulo. Efeito imediato esperado ao ligar: o cron começa a empurrar os ~20 pendentes acima do teto e a mandar o 1º resumo de alerta.
+- **Pendente/monitorar:** se o rate limit code 9 reaparecer com teto 60, avisar Saulo com os dados antes de baixar. Backup do código anterior: `publicar_instagram.py.bak_20260926_regras_v2`. O código em `/root/msconecta` **não foi commitado** (repo com outras alterações pendentes não relacionadas).
+- **Arquivos/serviços afetados:** `auto_slot_regras.py` (novo), `publicar_instagram.py`, `test_auto_slot_regras.py` (novo), docs.
+- **Motivo:** pedido de Saulo (teto, FIFO, 24h) após diagnóstico da mesma data; decisões 1-3 da simulação aprovadas por ele.
+- **Autor:** Claude Code
+
+---
+
 ## 2026-09-26 — Diagnóstico do auto-slot ("aprovado pode postar"): NÃO usa slots fixos, nenhuma mudança de código; lacunas reais nas regras de teto/FIFO/24h documentadas
 
 - **O que mudou:** apenas documentação (nenhum código alterado). Investigação do auto-slot (`calcular_slot_auto_aprovacao()` → `proximo_slot_livre_aprovacao()` em `publicar_instagram.py`, chamado por `agendar_auto()` via `pipeline_acoes.aprovar()`).
