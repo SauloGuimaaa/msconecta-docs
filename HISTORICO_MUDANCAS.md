@@ -9,6 +9,19 @@ Formato de cada entrada:
 
 ---
 
+## 2026-09-26 — Correção das regras V2 do auto-slot após o 1º ciclo (flag CONTINUA DESLIGADA): reconciliação do teto móvel em todos os pendentes, reposição reagendada, alerta 24h em resumo único
+
+- **O que mudou (`publicar_instagram.py`, só em disco — arquivo tem >1000 linhas não commitadas de outras sessões, deliberadamente NÃO commitado; `auto_slot_regras.py`/testes commitados no repo do MSConecta):**
+  - Novo `_reconciliar_teto_movel()`: no início de cada ciclo do cron (com a flag ligada) aplica o teto móvel a **todos** os pendentes em ordem de horário (aceitando antes os já publicados), inclusive **reposição** (que recebe novo horário sem janela 9h-20h). Estabiliza a fila de uma vez e faz o alerta de 24h sair como **uma mensagem única** (sem o gotejamento de 1 alerta por item que a simulação do ciclo real revelou quando o empurrão só acontecia ao vencer).
+  - Gate do cron: item de reposição barrado pelo teto móvel agora ganha novo horário (em vez de `continue` + log por minuto). Texto do alerta legado "Teto diario…" trocado por "Teto movel…" quando a flag está ligada.
+  - `proximo_instante_sem_violar_teto()` só considera instantes a <3 dias do candidato (performance com ~2200 itens no arquivo).
+- **Simulação do cron real (relógio falso, cópia da fila em arquivo temporário, Telegram mockado, publicação simulada a cada ≥20min, backlog de 25 aprovado em FIFO, 32h):** 0 mensagens "aguardando (sem empurrar…)", 0 reagendamentos por vencimento, **1 alerta único de 22 itens**, pico de janela 24h = 60 (dentro do teto), 50 publicados em 32h, fila esvaziada. 8 itens saem em 27/09 (07:00–10:40, 33-43h após gerados).
+- **Testes:** `test_auto_slot_regras.py` (10 casos, incluindo reconciliação estável) + suites existentes OK (35 testes).
+- **Estado:** flag `AUTO_SLOT_REGRAS_V2` DESLIGADA; religar só com aprovação de Saulo.
+- **Autor:** Claude Code
+
+---
+
 ## 2026-09-26 — Fila reordenada (quem menos tentou primeiro), reposições pausadas até 12:00 UTC com canais marcados, e diagnóstico do "session invalidated" do Threads (token de produção saudável; cópia velha em `/etc/profile.d`)
 
 - **Decisões de Saulo (sobre as pendências da entrada anterior):** (1) marcar os canais já publicados nas reposições antes de destravar; (2) **pausar por completo** as reposições (3-4h sem nenhuma tentativa) e reavaliar com dado novo, em vez de confiar no backoff — 14 recusas seguidas com a cota oficial longe do teto podem reforçar um sinal anti-abuso da Meta; (3) reordenar a fila para nenhum item monopolizar os slots; (4) investigar o token do Threads com prioridade; (5) não investigar mais os Stories de 25/09 (fora da janela de 24h da API).
