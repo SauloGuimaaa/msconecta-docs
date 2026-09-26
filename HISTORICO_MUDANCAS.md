@@ -9,6 +9,18 @@ Formato de cada entrada:
 
 ---
 
+## 2026-09-26 — FIX CRÍTICO: `descartar()` agora cancela a entrada pendente em `agendamentos.json` (descartado não é mais publicado pelo cron)
+
+- **Problema (achado C1 de `PLANO_VARREDURA_20260926.md`):** `pipeline_acoes.descartar()` só atualizava `estado.json` e o banco; o cron (`publicar_instagram.py --processar`) lê só `agendamentos.json`. Um item já agendado e depois descartado era publicado mesmo assim — 4 casos reais em 25/09 (Itaporã obra, Impressão 3D, ALEMS idadismo, Senai Corumbá), e o `sync_pipeline_db.py` reescrevia o banco de volta para `agendado`/`publicado` (a "ressurreição" observada no dashboard).
+- **O que mudou (`pipeline_acoes.py`):** novo `_cancelar_pendentes_em_agendamentos()` — sob `_lock_agendamentos_io()` (o mesmo lock que o ciclo do cron segura durante a publicação; timeout 120s), marca toda entrada `pendente` da pasta como `status="cancelado"` (+ `cancelado_em`, `erro_detalhe` com a origem); não apaga a entrada. `descartar()` faz isso **antes** de mexer em `estado.json`/banco: se o lock não liberar, **nada** é marcado e o operador recebe "Não descartado: a fila de publicação está ocupada… tente de novo em 1-2 minutos". Mensagens de retorno: "Descartado (também removido da fila de publicação)." e aviso explícito se a notícia já tinha publicação registrada (o que já saiu continua no ar). `cancelado` já era ignorado pelo cron e mapeado para `cancelado` pelo sync.
+- **Teste (Telegram/rede MOCKADOS — qualquer tentativa de envio falha o teste; arquivos e lock em diretório temporário):** `test_descartar_agendamentos.py` (novo, 7 casos): descartado sai de `pendente` em `agendamentos.json`, sai da `fila_aprovacao` e fica `cancelado` no banco; **cron simulado** (mesmo critério de seleção de `processar_agendamentos()`: `pendente` + horário vencido) não o publica e publica o outro item; outra pasta intocada; lock ocupado ⇒ nada marcado; já publicado ⇒ aviso sem alterar; sem entrada no JSON ⇒ comportamento anterior; sync mapeia para `cancelado`. **Rodado contra o código antigo: 4 falhas + 1 erro** (o teste pega o bug); contra o novo: 7/7. `test_pipeline_acoes_status.py` (8) segue passando.
+- **Deploy:** backup `backups/pipeline_acoes.py.bak_20260926_descartar_agendamentos`; troca por `mv` atômico após `py_compile`. Telegram usa o fix imediatamente (cada mensagem é um subprocesso novo); `msconecta-pipeline-dashboard` reiniciado (active, `NRestarts=0`, `/pipeline` 200, journal sem erro).
+- **Não commitado no repo do MSConecta:** `pipeline_acoes.py` carrega +300 linhas não commitadas de outras sessões (ver C6 do plano) — o commit fica para o lote L0.
+- **Arquivos/serviços afetados:** `pipeline_acoes.py`, `test_descartar_agendamentos.py` (novo), `msconecta-pipeline-dashboard` (restart).
+- **Autor:** Claude Code (a pedido de Saulo)
+
+---
+
 ## 2026-09-26 — Varredura completa de gaps/riscos para handoff: `PLANO_VARREDURA_20260926.md` (somente plano, NADA aplicado)
 
 - **O que mudou:** apenas documentação. Novo `PLANO_VARREDURA_20260926.md` com 22 achados (6 críticos, 12 importantes, 4 desejáveis) ordenados por prioridade, com evidência, correção proposta, lotes de aplicação (L0-L8) e 10 decisões pendentes de Saulo. Nenhum código, dado, cron, env ou serviço foi alterado; banco lido só em `mode=ro`; segredos verificados só por nome.
