@@ -275,6 +275,16 @@ Observação de capacidade: com ~76 itens numa janela de 24h, mesmo o teto 60
 adia a fila para 27/09 ~07:38; a causa é volume acima do teto, não o
 algoritmo de slots.
 
+### Nota 2026-09-26 (2) — Teto móvel: contagem local não é a verdade
+
+O teto móvel de 60/24h depende da contagem de publicados; entradas
+`publicado` falsas (feed falhou por rate limit, status gravado errado)
+inflaram a contagem em 9 e empurraram a fila para 18h. Agora o teto confere
+a contagem local com `quota_usage`/mídias da API real (só age no excesso,
+fail-safe se a API cair) e alerta 1x/dia se divergir ≥3. Pendência de fundo
+(Fase 1/3): gravar `code`/`subcode` do erro e nunca marcar `publicado`
+sem confirmação do feed.
+
 ## 7. Como usar este documento
 
 Cada sessão que for trabalhar numa fase deve ler este documento inteiro

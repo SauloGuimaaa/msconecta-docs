@@ -9,6 +9,22 @@ Formato de cada entrada:
 
 ---
 
+## 2026-09-26 — 9 "publicados" fantasma inflavam o teto móvel (55 em vez de 46): corrigidos no `agendamentos.json`, fila reposicionada, teto passa a conferir contagem local × API
+
+- **Sintoma:** auto-slot saltando de ~08h para 11h e depois 18h CG com as regras V2 ligadas. Diagnóstico inicial ("55 publicados desde 25/09 10:18") **estava errado no total**: as 55 entradas são todas de sexta 25/09 (datas conferidas, sem erro de fuso: `publicado_em` UTC bate com a API do Instagram em ±13s), mas **9 nunca saíram no feed**.
+- **Causa raiz:** em 25/09 o feed falhou por rate limit (`User is performing too many actions` / `Feed NÃO publicado` no `instagram.log`) mas o `agendamentos.json` guardou `status=publicado` (bug de status já corrigido em 25/09, que deixou entradas falsas para trás). O teto móvel as contava (55 locais vs 46 mídias na API na janela; `content_publishing_limit` = 50/100). A investigação anterior dizia "sem duplicados" olhando só pendente×pendente — não cruzou pendente×publicado. `listar_falsos_publicados_rate_limit.py` não pegou porque só olha o banco.
+- **O que foi feito (aprovado por Saulo):**
+  1. `agendamentos.json` (backup: `agendamentos.json.bak_20260926_fantasmas`): os 9 fantasmas viraram `status=erro` (campo `falso_publicado_em` guarda o horário antigo, `publicado_em` removido). 6 deles já tinham nova entrada pendente; os outros 3: **Açúcar → cancelado** (notícia de mercado vencida, decisão de Saulo); **CG libera R$ 173 mi → reagendado**; **Corumbá vagas em curso → reagendado** (decisão minha, autorizada: a matéria não traz prazo de inscrição — texto local em `meta.json`; o site bloqueou o fetch (Cloudflare 1005) — Saulo pode cancelar; ambos entram no próximo alerta de >24h).
+  2. **12 pendentes reposicionados** em ordem FIFO por geração para os horários livres (ex.: 14:10→08:56, 17:55→10:49, 18:13→13:28; fila densa de 07:00 a 14:04 CG). Reposições (pausa deliberada de Saulo) não foram tocadas.
+  3. **Conferência do teto × API** (`_publicados_nao_confirmados()` em `publicar_instagram.py`, só com a flag V2): compara publicados locais das últimas 24h com `quota_usage` e mídias reais (cache de 10min em `cache_conferencia_teto_api.json`); se local > API, ignora no teto no máximo o EXCESSO, só itens sem par de horário na API (±15min, 1-para-1); API fora do ar = comportamento anterior; excesso ≥3 gera 1 alerta Telegram/dia. Usado na reconciliação, no cálculo do slot e no gate do cron.
+- **Resultado:** contagem 24h = 46; próximos slots de novas aprovações 14:53, 15:40, 16:34, 16:53 CG (antes: 18:51+). O teto ainda pode voltar a ser o limite à medida que a fila enche (46 publicados + 29 pendentes ≈ 60 na janela), mas o salto artificial acabou.
+- **Testes:** 42 no total, incluindo 6 novos de conferência (só excesso, só sem par, API fora, flag desligada, alerta único). `test_auto_slot_regras.py`/`auto_slot_regras.py` commitados no repo do MSConecta; `publicar_instagram.py` segue sem commit (decisão de Saulo).
+- **Lição:** "publicado" em `agendamentos.json` não é prova; conferir com a API antes de concluir sobre contagem/ocupação.
+- **Arquivos afetados:** `agendamentos.json`, `publicar_instagram.py`, `auto_slot_regras.py`, `test_auto_slot_regras.py`, `cache_conferencia_teto_api.json` (novo), docs.
+- **Autor:** Claude Code
+
+---
+
 ## 2026-09-26 — Credenciais fixas removidas de `post_story_agora.py` (msconecta e spconecta), renovação agendada também do INSTAGRAM_TOKEN (motor único `renovar_token_meta.py`) e tokens removidos de `/etc/msconecta-bot.env` com reinício serviço a serviço
 
 - **Decisões de Saulo:** (1) remover as credenciais fixas de `post_story_agora.py` (nos dois projetos) e tratar como exposição real — os valores foram impressos por engano num `grep` — com rotação por precaução; (2) agendar a renovação do `INSTAGRAM_TOKEN` (reaproveitando `ig_refresh_token`) com o mesmo padrão de alerta/watchdog do Threads; (3) remover os 3 tokens de `/etc/msconecta-bot.env` também, auditando os serviços e reiniciando um por vez com checagem de saúde.
